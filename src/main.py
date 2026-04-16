@@ -35,12 +35,8 @@ def validate_args(args):
         if not path.is_file():
             raise ValueError(f"input file is not a file: {path}")
 
-    # --- Windows safety checks ---
-    if os.name == "nt":
-        if args.vdbench_path and not args.vdbench_path.lower().endswith((".bat", ".cmd", ".jar")):
-            raise ValueError("vdbench-path must be .bat, .cmd or .jar on Windows")
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="VDbench Prometheus exporter")
 
     parser.add_argument(
@@ -68,7 +64,7 @@ def parse_args():
         help="Prometheus port"
     )
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 async def main():
