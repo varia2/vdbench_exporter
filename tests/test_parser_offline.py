@@ -1,4 +1,3 @@
-import pytest
 from src.vdbench_runner import decode_line
 
 def test_decode_cp1251():

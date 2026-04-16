@@ -1,6 +1,4 @@
 import pytest
-import asyncio
-
 
 class FakeStream:
     def __init__(self, lines):

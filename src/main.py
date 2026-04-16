@@ -1,9 +1,8 @@
 import asyncio
 import argparse
-import os
 from pathlib import Path
-
-from src.vdbench_runner import start_http_server, run_vdbench
+from prometheus_client import start_http_server
+from src.vdbench_runner import run_vdbench
 
 def validate_args(args):
     # --- port ---

@@ -2,7 +2,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from prometheus_client import start_http_server, Gauge
+from prometheus_client import Gauge
 
 # Метрики
 iops = Gauge('vdbench_iops', 'IOPS')
