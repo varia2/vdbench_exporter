@@ -38,6 +38,19 @@ def parse_args(argv=None):
         help="Prometheus port"
     )
 
+    parser.add_argument(
+        "--push-gateway",
+        type=str,
+        help="Pushgateway URL (e.g. http://localhost:9091)"
+    )
+
+    parser.add_argument(
+        "--job-name",
+        type=str,
+        default="vdbench",
+        help="Prometheus job name for push"
+    )
+
     return parser.parse_args(argv)
 
 
@@ -54,7 +67,11 @@ async def main():
         if not args.vdbench_path:
             raise ValueError("--vdbench-path is required in online mode")
 
-        asyncio.create_task(run_vdbench(args.vdbench_path, args.workload_file))
+        asyncio.create_task(run_vdbench(args.vdbench_path,
+                                        args.workload_file),
+                                        push_gateway=args.push_gateway,
+                                        job_name=args.job_name
+                                        )
 
     else:
         if not args.input_file:
