@@ -1,6 +1,5 @@
 import asyncio
 import argparse
-import sys
 from pathlib import Path
 from prometheus_client import start_http_server
 from src.vdbench_runner import run_vdbench
