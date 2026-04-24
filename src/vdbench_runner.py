@@ -37,9 +37,10 @@ async def parse_vdbench_stream(stream):
         throughput.set(mbs * 1024 * 1024)
         latency.set(lat)
 
-async def run_vdbench(vdbench_jar: str):
+async def run_vdbench(vdbench_jar: str, workload_file: str):
     proc = await asyncio.create_subprocess_exec(
         "java", "-jar", vdbench_jar,
+        "-f", workload_file,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT
     )

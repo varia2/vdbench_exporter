@@ -26,3 +26,9 @@ def test_missing_input_file():
     args = Args(mode="offline")
     with pytest.raises(ValueError):
         validate_args(args)
+
+def test_missing_workload():
+    args = Args(mode="online", vdbench_path="vdbench.bat")
+
+    with pytest.raises(ValueError):
+        validate_args(args)

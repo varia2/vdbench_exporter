@@ -1,0 +1,5 @@
+* Cross-platform test VDbench workload
+
+sd=sd1,lun={LUN},size=1G
+wd=wd1,sd=sd1,rdpct=70,xfersize=4k
+rd=run1,wd=wd1,iorate=max,elapsed=60,interval=1
