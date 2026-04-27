@@ -11,11 +11,12 @@ from src.metrics import (
     registry
 )
 
+# Чтение iops, mbs, latency
 METRICS_RE = re.compile(
     r"(?P<iops>\d+)\s+(?P<mbs>\d+\.?\d*)\s+(?P<lat>\d+\.?\d*)"
 )
 
-async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench"):
+async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench", polling=5):
     last_push = 0
     while True:
         raw = await stream.readline()
@@ -39,11 +40,11 @@ async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench"):
         throughput.set(mbs_val * 1024 * 1024)
         latency.set(lat_val)
 
-        if push_gateway and time.time() - last_push > 5:
+        if push_gateway and time.time() - last_push > polling:
             push_metrics(push_gateway, job_name)
             last_push = time.time()
 
-async def run_vdbench(vdbench_jar: str, workload_file: str, push_gateway=None, job_name="vdbench"):
+async def run_vdbench(vdbench_jar: str, workload_file: str, push_gateway=None, job_name="vdbench", polling=5):
     proc = await asyncio.create_subprocess_exec(
         "java", "-jar", vdbench_jar,
         "-f", workload_file,
@@ -51,7 +52,7 @@ async def run_vdbench(vdbench_jar: str, workload_file: str, push_gateway=None, j
         stderr=asyncio.subprocess.STDOUT
     )
 
-    await parse_vdbench_stream(proc.stdout, push_gateway, job_name)
+    await parse_vdbench_stream(proc.stdout, push_gateway, job_name, polling)
 
 #TODO дописать работу офлайн
 async def run_offline(file_path: str):

@@ -20,6 +20,7 @@ async def test_main_creates_task(mock_create_task, mock_run_vdbench):
         job_name = "test_job"
         mode = "online"
         port = 8000
+        polling = 5
 
     await start_app(Args)
 
@@ -29,7 +30,8 @@ async def test_main_creates_task(mock_create_task, mock_run_vdbench):
         Args.vdbench_path,
         Args.workload_config,
         push_gateway="http://localhost:9091",
-        job_name="test_job"
+        job_name="test_job",
+        polling=5
     )
 
 @pytest.mark.asyncio
@@ -42,6 +44,7 @@ async def test_main_does_not_crash(mock_run):
         job_name = "vdbench"
         mode = "online"
         port = 8000
+        polling = 5
 
     await start_app(Args)
 

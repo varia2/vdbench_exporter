@@ -51,6 +51,13 @@ def parse_args(argv=None):
         help="Prometheus job name for push"
     )
 
+    parser.add_argument(
+        "--polling",
+        type=int,
+        default=5,
+        help="Polling time in seconds"
+    )
+
     return parser.parse_args(argv)
 
 async def start_app(args):
@@ -63,7 +70,8 @@ async def start_app(args):
                 args.vdbench_path,
                 args.workload_config,
                 push_gateway=args.push_gateway,
-                job_name=args.job_name
+                job_name=args.job_name,
+                polling=args.polling
             )
         )
     else:
