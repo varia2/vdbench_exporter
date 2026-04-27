@@ -4,6 +4,8 @@ def validate_file_arg(arg_name, file_path, optional=False):
     if not optional and not file_path:
         raise ValueError(f"--{arg_name} is required")
 
+    if optional and not file_path:
+        return
     path = Path(file_path)
 
     if not path.exists():
@@ -38,3 +40,6 @@ def render_workload(template_path: str) -> str:
     output_path.write_text(content)
 
     return str(output_path)
+
+def get_project_root():
+    return Path(__file__).resolve().parent.parent

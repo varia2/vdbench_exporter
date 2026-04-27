@@ -1,6 +1,6 @@
 import asyncio
 import argparse
-from src.utils import validate_args, render_workload
+from src.utils import validate_args, render_workload, get_project_root
 from prometheus_client import start_http_server
 from src.vdbench_runner import run_vdbench
 
@@ -53,6 +53,25 @@ def parse_args(argv=None):
 
     return parser.parse_args(argv)
 
+async def start_app(args):
+    if args.mode == "online":
+        if not args.vdbench_path:
+            raise ValueError("--vdbench-path is required in online mode")
+
+        asyncio.create_task(
+            run_vdbench(
+                args.vdbench_path,
+                args.workload_config,
+                push_gateway=args.push_gateway,
+                job_name=args.job_name
+            )
+        )
+    else:
+        if not args.input_file:
+            raise ValueError("--input-file is required in offline mode")
+        raise NotImplementedError
+        # asyncio.create_task(run_offline(args.input_file))
+
 
 async def main():
     args = parse_args()
@@ -60,24 +79,11 @@ async def main():
     print(f"Starting exporter on :{args.port}")
     start_http_server(args.port)
 
-    if args.workload_path is None:
-        args.workload_path = render_workload("workloads/default.tpl")
+    if args.workload_config is None:
+        template_path = get_project_root() / "default_workload.tlp"
+        args.workload_config = render_workload(str(template_path))
 
-    if args.mode == "online":
-        if not args.vdbench_path:
-            raise ValueError("--vdbench-path is required in online mode")
-
-        asyncio.create_task(run_vdbench(args.vdbench_path,
-                                        args.workload_file),
-                                        push_gateway=args.push_gateway,
-                                        job_name=args.job_name
-                                        )
-
-    else:
-        if not args.input_file:
-            raise ValueError("--input-file is required in offline mode")
-        return NotImplementedError
-        # asyncio.create_task(run_offline(args.input_file))
+    await start_app(args)
 
     while True:
         await asyncio.sleep(1)
