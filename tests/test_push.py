@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from src.metrics import registry
+from prometheus_client import REGISTRY
 from src.vdbench_runner import push_metrics, parse_vdbench_stream
 
 
@@ -15,7 +15,7 @@ def test_push_metrics_called(mock_push):
 
     assert args[0] == "http://localhost:9091"
     assert kwargs["job"] == "test_job"
-    assert kwargs["registry"] == registry
+    assert kwargs["registry"] == REGISTRY
 
 class FakeStream:
     def __init__(self, lines):

@@ -2,14 +2,18 @@ import asyncio
 import re
 import time
 from pathlib import Path
+from prometheus_client import REGISTRY
 
 from prometheus_client import push_to_gateway
 from src.metrics import (
     vdbench_iops as iops,
     vdbench_latency as latency,
-    vdbench_throughput as throughput,
-    registry
+    vdbench_throughput as throughput
 )
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Чтение iops, mbs, latency
 METRICS_RE = re.compile(
@@ -24,6 +28,7 @@ async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench", po
             break
 
         line = decode_line(raw)
+        # logger.debug(line)
 
         if not is_valid_line(line):
             continue
@@ -43,14 +48,21 @@ async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench", po
         if push_gateway and time.time() - last_push > polling:
             push_metrics(push_gateway, job_name)
             last_push = time.time()
+            logger.info(
+                f"Pushing metrics to {push_gateway}, "
+                f"job={job_name}"
+            )
 
-async def run_vdbench(vdbench_jar: str, workload_file: str, push_gateway=None, job_name="vdbench", polling=5):
+async def run_vdbench(vdbench_executable: str, workload_file: str, push_gateway=None, job_name="vdbench", polling=5):
     proc = await asyncio.create_subprocess_exec(
-        "java", "-jar", vdbench_jar,
+        vdbench_executable,
         "-f", workload_file,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT
     )
+
+    logger.info(f"Starting Vdbench: {vdbench_executable}")
+    logger.info(f"Workload: {workload_file}")
 
     await parse_vdbench_stream(proc.stdout, push_gateway, job_name, polling)
 
@@ -69,7 +81,7 @@ async def run_offline(file_path: str):
             await asyncio.sleep(0)
 
 def push_metrics(gateway: str, job: str) -> None:
-    push_to_gateway(gateway, job=job, registry=registry)
+    push_to_gateway(gateway, job=job, registry=REGISTRY)
 
 
 def decode_line(line: bytes) -> str:

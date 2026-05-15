@@ -4,6 +4,11 @@ from src.utils import validate_args, render_workload, get_project_root
 from prometheus_client import start_http_server
 from src.vdbench_runner import run_vdbench
 
+from src.logger import setup_logging
+import logging
+
+logger = logging.getLogger(__name__)
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="VDbench Prometheus exporter")
 
@@ -58,6 +63,12 @@ def parse_args(argv=None):
         help="Polling time in seconds"
     )
 
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
+
     return parser.parse_args(argv)
 
 async def start_app(args):
@@ -83,8 +94,9 @@ async def start_app(args):
 
 async def main():
     args = parse_args()
+    setup_logging(args.log_level)
     validate_args(args)
-    print(f"Starting exporter on :{args.port}")
+    logger.info(f"Starting exporter on :{args.port}")
     start_http_server(args.port)
 
     if args.workload_config is None:
