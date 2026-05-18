@@ -1,39 +1,13 @@
 import asyncio
 import argparse
-from pathlib import Path
+from src.utils import validate_args, render_workload, get_project_root
 from prometheus_client import start_http_server
 from src.vdbench_runner import run_vdbench
 
-def validate_args(args):
-    # --- port ---
-    if not (1 <= args.port <= 65535):
-        raise ValueError(f"Invalid port: {args.port}")
+from src.logger import setup_logging
+import logging
 
-    # --- mode checks ---
-    if args.mode == "online":
-        if not args.vdbench_path:
-            raise ValueError("--vdbench-path is required in online mode")
-
-        path = Path(args.vdbench_path)
-
-        if not path.exists():
-            raise ValueError(f"vdbench path does not exist: {path}")
-
-        if not path.is_file():
-            raise ValueError(f"vdbench path is not a file: {path}")
-
-    elif args.mode == "offline":
-        if not args.input_file:
-            raise ValueError("--input-file is required in offline mode")
-
-        path = Path(args.input_file)
-
-        if not path.exists():
-            raise ValueError(f"input file does not exist: {path}")
-
-        if not path.is_file():
-            raise ValueError(f"input file is not a file: {path}")
-
+logger = logging.getLogger(__name__)
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="VDbench Prometheus exporter")
@@ -57,32 +31,79 @@ def parse_args(argv=None):
     )
 
     parser.add_argument(
+        "--workload-config",
+        type=str,
+        help="Path to vdbench workload configuration file(optional, default will be generated)"
+    )
+
+    parser.add_argument(
         "--port",
         type=int,
         default=8000,
         help="Prometheus port"
     )
 
+    parser.add_argument(
+        "--push-gateway",
+        type=str,
+        help="Pushgateway URL (e.g. http://localhost:9091)"
+    )
+
+    parser.add_argument(
+        "--job-name",
+        type=str,
+        default="vdbench",
+        help="Prometheus job name for push"
+    )
+
+    parser.add_argument(
+        "--polling",
+        type=int,
+        default=5,
+        help="Polling time in seconds"
+    )
+
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
+
     return parser.parse_args(argv)
 
-
-async def main():
-    args = parse_args()
-    validate_args(args)
-    print(f"Starting exporter on :{args.port}")
-    start_http_server(args.port)
-
+async def start_app(args):
     if args.mode == "online":
         if not args.vdbench_path:
             raise ValueError("--vdbench-path is required in online mode")
 
-        asyncio.create_task(run_vdbench(args.vdbench_path))
-
+        asyncio.create_task(
+            run_vdbench(
+                args.vdbench_path,
+                args.workload_config,
+                push_gateway=args.push_gateway,
+                job_name=args.job_name,
+                polling=args.polling
+            )
+        )
     else:
         if not args.input_file:
             raise ValueError("--input-file is required in offline mode")
-        return NotImplementedError
+        raise NotImplementedError
         # asyncio.create_task(run_offline(args.input_file))
+
+
+async def main():
+    args = parse_args()
+    setup_logging(args.log_level)
+    validate_args(args)
+    logger.info(f"Starting exporter on :{args.port}")
+    start_http_server(args.port)
+
+    if args.workload_config is None:
+        template_path = get_project_root() / "default_workload.tlp"
+        args.workload_config = render_workload(str(template_path))
+
+    await start_app(args)
 
     while True:
         await asyncio.sleep(1)
