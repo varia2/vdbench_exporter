@@ -4,7 +4,9 @@ from unittest.mock import patch, AsyncMock
 import pytest
 
 from src.main import start_app
+from src.runtime_state import RuntimeState
 from src.vdbench_runner import follow_vdbench_output
+from src.shutdown import ShutdownController
 
 
 @pytest.mark.asyncio
@@ -14,18 +16,27 @@ async def test_main_creates_reader_task(
         mock_create_task,
         mock_follow
 ):
+    mock_create_task.side_effect = (
+        lambda coro: coro.close()
+    )
     class Args:
         output_file = "output/flatfile.html"
         push_gateway = "http://localhost:9091"
         job_name = "test_job"
         polling = 5
+        stop_mode = "infinite"
 
-    await start_app(Args)
+    controller = ShutdownController()
+    runtime_state = RuntimeState()
+
+    await start_app(Args, controller, runtime_state)
 
     assert mock_create_task.called
 
     mock_follow.assert_called_with(
         Args.output_file,
+        controller,
+        runtime_state,
         push_gateway="http://localhost:9091",
         job_name="test_job",
         polling=5
@@ -40,8 +51,11 @@ async def test_main_does_not_crash(mock_follow):
         push_gateway = None
         job_name = "vdbench"
         polling = 5
+        stop_mode = "infinite"
 
-    await start_app(Args)
+    controller = ShutdownController()
+    runtime_state = RuntimeState()
+    await start_app(Args, controller, runtime_state)
 
     mock_follow.assert_called_once()
 
@@ -52,6 +66,8 @@ def test_follow_vdbench_output_signature():
     assert "push_gateway" in sig.parameters
     assert "job_name" in sig.parameters
     assert "polling" in sig.parameters
+    assert "shutdown_controller" in sig.parameters
+    assert "runtime_state" in sig.parameters
 
 
 def test_create_task_signature():

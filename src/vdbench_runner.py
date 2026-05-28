@@ -55,6 +55,8 @@ def maybe_push_metrics(
 
 async def follow_vdbench_output(
         file_path: str,
+        shutdown_controller,
+        runtime_state,
         push_gateway=None,
         job_name="vdbench",
         polling=5
@@ -72,8 +74,8 @@ async def follow_vdbench_output(
 
     with path.open("r", encoding="utf-8", errors="ignore") as f:
         f.seek(0, 2)
-
-        while True:
+        runtime_state.reader_running = True
+        while not shutdown_controller.is_stopped:
             line = f.readline()
 
             if not line:
@@ -88,6 +90,7 @@ async def follow_vdbench_output(
                 continue
 
             export_metrics(metrics)
+            runtime_state.mark_metrics_update()
 
             logger.debug(
                 f"IOPS={metrics.iops}, "
@@ -103,6 +106,7 @@ async def follow_vdbench_output(
                     f"Pushing metrics to {push_gateway}, "
                     f"job={job_name}"
                 )
+            runtime_state.reader_running = False
 
 #TODO дописать работу офлайн
 async def run_offline(file_path: str):

@@ -2,12 +2,15 @@ import asyncio
 
 import pytest
 
+from src.runtime_state import RuntimeState
 from src.vdbench_runner import follow_vdbench_output
 from src.metrics import (
     vdbench_iops,
     vdbench_latency,
     vdbench_throughput
 )
+
+from src.shutdown import ShutdownController
 
 
 @pytest.mark.asyncio
@@ -23,8 +26,10 @@ async def test_follow_vdbench_output(tmp_path):
             f.write("1000 10.5 1.2\n")
             f.flush()
 
+    controller = ShutdownController()
+    runtime_state = RuntimeState()
     reader_task = asyncio.create_task(
-        follow_vdbench_output(str(output_file))
+        follow_vdbench_output(str(output_file), controller, runtime_state)
     )
 
     writer_task = asyncio.create_task(writer())

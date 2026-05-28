@@ -9,12 +9,15 @@ from src.metrics import (
     vdbench_latency,
     vdbench_throughput
 )
+from src.runtime_state import RuntimeState
 
 from src.vdbench_runner import (
     push_metrics,
     maybe_push_metrics,
     follow_vdbench_output
 )
+
+from src.shutdown import ShutdownController
 
 
 @patch("src.vdbench_runner.push_to_gateway")
@@ -52,7 +55,10 @@ def test_maybe_push_metrics_skips_none(mock_push):
 
 @pytest.mark.asyncio
 @patch("src.vdbench_runner.push_metrics")
-async def test_follow_output_updates_metrics(mock_push, tmp_path):
+async def test_follow_output_updates_metrics(
+        mock_push,
+        tmp_path
+):
     output_file = tmp_path / "flatfile.html"
 
     output_file.write_text("")
@@ -64,9 +70,14 @@ async def test_follow_output_updates_metrics(mock_push, tmp_path):
             f.write("1000 10.5 1.2\n")
             f.flush()
 
+    controller = ShutdownController()
+    runtime_state = RuntimeState()
+
     reader_task = asyncio.create_task(
         follow_vdbench_output(
             str(output_file),
+            shutdown_controller=controller,
+            runtime_state=runtime_state,
             push_gateway="http://localhost:9091",
             job_name="test_job",
             polling=0
@@ -83,13 +94,10 @@ async def test_follow_output_updates_metrics(mock_push, tmp_path):
 
     assert mock_push.called
 
-    reader_task.cancel()
+    # graceful shutdown
+    controller.stop()
 
-    try:
-        await reader_task
-    except asyncio.CancelledError:
-        pass
-
+    await reader_task
     await writer_task
 
 
@@ -109,11 +117,15 @@ async def test_follow_output_ignores_invalid(mock_push, tmp_path):
             f.write("invalid data\n")
             f.flush()
 
+    controller = ShutdownController()
+    runtime_state = RuntimeState()
     reader_task = asyncio.create_task(
         follow_vdbench_output(
             str(output_file),
             push_gateway="http://localhost:9091",
-            polling=0
+            polling=0,
+            shutdown_controller=controller,
+            runtime_state=runtime_state
         )
     )
 
