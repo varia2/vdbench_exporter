@@ -1,0 +1,45 @@
+import asyncio
+
+import pytest
+
+from src.vdbench_runner import follow_vdbench_output
+from src.metrics import (
+    vdbench_iops,
+    vdbench_latency,
+    vdbench_throughput
+)
+
+
+@pytest.mark.asyncio
+async def test_follow_vdbench_output(tmp_path):
+    output_file = tmp_path / "flatfile.html"
+
+    output_file.write_text("")
+
+    async def writer():
+        await asyncio.sleep(0.2)
+
+        with output_file.open("a") as f:
+            f.write("1000 10.5 1.2\n")
+            f.flush()
+
+    reader_task = asyncio.create_task(
+        follow_vdbench_output(str(output_file))
+    )
+
+    writer_task = asyncio.create_task(writer())
+
+    await asyncio.sleep(1)
+
+    assert vdbench_iops._value.get() == 1000
+    assert vdbench_throughput._value.get() == 10.5 * 1024 * 1024
+    assert vdbench_latency._value.get() == 1.2
+
+    reader_task.cancel()
+
+    try:
+        await reader_task
+    except asyncio.CancelledError:
+        pass
+
+    await writer_task

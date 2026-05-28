@@ -1,8 +1,8 @@
 import asyncio
 import argparse
-from src.utils import validate_args, render_workload, get_project_root
+from src.utils import validate_args
 from prometheus_client import start_http_server
-from src.vdbench_runner import run_vdbench
+from src.vdbench_runner import follow_vdbench_output
 
 from src.logger import setup_logging
 import logging
@@ -13,27 +13,14 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="VDbench Prometheus exporter")
 
     parser.add_argument(
-        "--mode",
-        choices=["online", "offline"],
-        default="online",
-        help="Mode: online (run vdbench) or offline (read file)"
-    )
-
-    parser.add_argument(
-        "--vdbench-path",
-        help="Path to vdbench.bat or vdbench.jar",
-        default=r"C:\Users\varia\Downloads\vdbench50407\vdbench50407\vdbench.bat"
+        "--output-file",
+        required=True,
+        help="Path to VDbench flatfile.html"
     )
 
     parser.add_argument(
         "--input-file",
         help="Path to vdbench output file (offline mode)"
-    )
-
-    parser.add_argument(
-        "--workload-config",
-        type=str,
-        help="Path to vdbench workload configuration file(optional, default will be generated)"
     )
 
     parser.add_argument(
@@ -72,24 +59,14 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 async def start_app(args):
-    if args.mode == "online":
-        if not args.vdbench_path:
-            raise ValueError("--vdbench-path is required in online mode")
-
-        asyncio.create_task(
-            run_vdbench(
-                args.vdbench_path,
-                args.workload_config,
-                push_gateway=args.push_gateway,
-                job_name=args.job_name,
-                polling=args.polling
-            )
+    asyncio.create_task(
+        follow_vdbench_output(
+            args.output_file,
+            push_gateway=args.push_gateway,
+            job_name=args.job_name,
+            polling=args.polling
         )
-    else:
-        if not args.input_file:
-            raise ValueError("--input-file is required in offline mode")
-        raise NotImplementedError
-        # asyncio.create_task(run_offline(args.input_file))
+    )
 
 
 async def main():
@@ -98,10 +75,6 @@ async def main():
     validate_args(args)
     logger.info(f"Starting exporter on :{args.port}")
     start_http_server(args.port)
-
-    if args.workload_config is None:
-        template_path = get_project_root() / "default_workload.tlp"
-        args.workload_config = render_workload(str(template_path))
 
     await start_app(args)
 
