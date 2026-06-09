@@ -1,4 +1,5 @@
 import re
+import time
 from pathlib import Path
 
 import requests
@@ -6,6 +7,15 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+flatfile = Path("output/flatfile.html")
+
+initial_lines = len(
+    flatfile.read_text(
+        encoding="utf-8",
+        errors="ignore"
+    ).splitlines()
+)
 
 def prom_query(metric):
     r = requests.get(
@@ -25,9 +35,8 @@ def get_exporter_metrics():
 
     def metric(name):
         m = re.search(
-            rf"^{name}\s+([0-9.]+)$",
-            text,
-            re.MULTILINE
+            rf"^{name}\s+([0-9.]+(?:[eE][+-]?\d+)?)$",
+            text, re.MULTILINE
         )
 
         return float(m.group(1))
@@ -61,6 +70,31 @@ def get_last_vdbench_values(path):
             continue
 
     raise RuntimeError("No metrics found")
+
+def get_health():
+    return requests.get(
+        "http://localhost:8080/health",
+        timeout=5
+    ).json()
+
+
+def wait_for_metrics_update(timeout=30):
+    before = get_health()["last_metrics_update"]
+
+    start = time.time()
+
+    while time.time() - start < timeout:
+        current = get_health()["last_metrics_update"]
+
+        if current != before:
+            return
+
+        time.sleep(1)
+
+    raise AssertionError(
+        "Exporter did not process new metrics"
+    )
+
 
 def test_health():
     r = requests.get(
@@ -97,11 +131,13 @@ def test_prometheus_target():
     assert result[0]["value"][1] == "1"
 
 def test_metrics_consistency():
+    wait_for_metrics_update()
+
+    exporter = get_exporter_metrics()
+
     vd_iops, vd_mbs, vd_lat = get_last_vdbench_values(
         "output/flatfile.html"
     )
-
-    exporter = get_exporter_metrics()
 
     prom_iops = prom_query("vdbench_iops")
     prom_lat = prom_query("vdbench_latency")

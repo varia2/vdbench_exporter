@@ -35,7 +35,7 @@ class FlatfileSchema:
 def parse_header(line: str) -> FlatfileSchema | None:
     columns = line.split()
 
-    if "Rate" not in columns:
+    if "Rate" not in columns or "Resp" not in columns or "MB/sec" not in columns:
         return None
 
     return FlatfileSchema(
@@ -44,18 +44,20 @@ def parse_header(line: str) -> FlatfileSchema | None:
         mbs_idx=columns.index("MB/sec")
     )
 
-def discover_flatfile_schema(path: Path) -> FlatfileSchema:
-    with path.open(
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
+def discover_flatfile_schema(path: Path, timeout: int=20) -> FlatfileSchema:
+    start = time.time()
 
-        for line in f:
-            schema = parse_header(line)
+    while time.time() - start < timeout:
+        with path.open(
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
+            for line in f:
+                schema = parse_header(line)
 
-            if schema:
-                return schema
+                if schema:
+                    return schema
 
     raise RuntimeError(
         f"Could not find VDbench header in {path}"
@@ -108,12 +110,19 @@ async def follow_vdbench_output(
         raise FileNotFoundError(
             f"VDbench output file not found: {file_path}"
         )
-
     logger.info(f"Following VDbench output: {file_path}")
 
     last_push = 0
     with path.open("r", encoding="utf-8", errors="ignore") as f:
+        logger.info("Discovering flatfile schema...")
         schema = discover_flatfile_schema(path)
+
+        logger.info(
+            f"SCHEMA: "
+            f"rate={schema.rate_idx}, "
+            f"resp={schema.resp_idx}, "
+            f"mbs={schema.mbs_idx}"
+        )
 
         f.seek(0, 2)
         runtime_state.reader_running = True
@@ -127,23 +136,14 @@ async def follow_vdbench_output(
 
                 line = line.strip()
 
-                if schema is None:
-                    schema = parse_header(line)
-
-                    if schema:
-                        logger.info(
-                            f"Flatfile schema found: "
-                            f"Rate={schema.rate_idx}, "
-                            f"Resp={schema.resp_idx}, "
-                            f"MB/sec={schema.mbs_idx}"
-                        )
-
-                    continue
-
                 metrics = parse_metrics_line(
                     line,
                     schema
                 )
+
+                logger.info(f"LINE={line}")
+
+                logger.info(f"PARSED={metrics}")
 
                 if not metrics:
                     continue
@@ -165,7 +165,6 @@ async def follow_vdbench_output(
                         f"Pushing metrics to {push_gateway}, "
                         f"job={job_name}"
                     )
-                runtime_state.reader_running = False
         finally:
             runtime_state.reader_running = False
 
