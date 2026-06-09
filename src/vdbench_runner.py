@@ -26,20 +26,61 @@ class VdbenchMetrics:
     throughput_bytes: float
     latency_ms: float
 
-def parse_metrics_line(line: str) -> VdbenchMetrics | None:
-    if not is_valid_line(line):
+@dataclass
+class FlatfileSchema:
+    rate_idx: int
+    resp_idx: int
+    mbs_idx: int
+
+def parse_header(line: str) -> FlatfileSchema | None:
+    columns = line.split()
+
+    if "Rate" not in columns:
         return None
 
-    match = METRICS_RE.search(line)
-
-    if not match:
-        return None
-
-    return VdbenchMetrics(
-        iops=float(match.group("iops")),
-        throughput_bytes=float(match.group("mbs")) * 1024 * 1024,
-        latency_ms=float(match.group("lat"))
+    return FlatfileSchema(
+        rate_idx=columns.index("Rate"),
+        resp_idx=columns.index("Resp"),
+        mbs_idx=columns.index("MB/sec")
     )
+
+def discover_flatfile_schema(path: Path) -> FlatfileSchema:
+    with path.open(
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
+
+        for line in f:
+            schema = parse_header(line)
+
+            if schema:
+                return schema
+
+    raise RuntimeError(
+        f"Could not find VDbench header in {path}"
+    )
+
+def parse_metrics_line(
+        line: str,
+        schema: FlatfileSchema
+) -> VdbenchMetrics | None:
+
+    parts = line.split()
+
+    try:
+        iops = float(parts[schema.rate_idx])
+        latency = float(parts[schema.resp_idx])
+        mbs = float(parts[schema.mbs_idx])
+
+        return VdbenchMetrics(
+            iops=iops,
+            throughput_bytes=mbs * 1024 * 1024,
+            latency_ms=latency
+        )
+
+    except (ValueError, IndexError):
+        return None
 
 def export_metrics(metrics: VdbenchMetrics):
     iops.set(metrics.iops)
@@ -71,41 +112,61 @@ async def follow_vdbench_output(
     logger.info(f"Following VDbench output: {file_path}")
 
     last_push = 0
-
     with path.open("r", encoding="utf-8", errors="ignore") as f:
+        schema = discover_flatfile_schema(path)
+
         f.seek(0, 2)
         runtime_state.reader_running = True
-        while not shutdown_controller.is_stopped:
-            line = f.readline()
+        try:
+            while not shutdown_controller.is_stopped:
+                line = f.readline()
 
-            if not line:
-                await asyncio.sleep(0.2)
-                continue
+                if not line:
+                    await asyncio.sleep(0.2)
+                    continue
 
-            line = line.strip()
+                line = line.strip()
 
-            metrics = parse_metrics_line(line)
+                if schema is None:
+                    schema = parse_header(line)
 
-            if not metrics:
-                continue
+                    if schema:
+                        logger.info(
+                            f"Flatfile schema found: "
+                            f"Rate={schema.rate_idx}, "
+                            f"Resp={schema.resp_idx}, "
+                            f"MB/sec={schema.mbs_idx}"
+                        )
 
-            export_metrics(metrics)
-            runtime_state.mark_metrics_update()
+                    continue
 
-            logger.debug(
-                f"IOPS={metrics.iops}, "
-                f"THR={metrics.throughput_bytes}, "
-                f"LAT={metrics.latency_ms}"
-            )
-
-            if push_gateway and time.time() - last_push > polling:
-                maybe_push_metrics(push_gateway, job_name)
-                last_push = time.time()
-
-                logger.info(
-                    f"Pushing metrics to {push_gateway}, "
-                    f"job={job_name}"
+                metrics = parse_metrics_line(
+                    line,
+                    schema
                 )
+
+                if not metrics:
+                    continue
+
+                export_metrics(metrics)
+                runtime_state.mark_metrics_update()
+
+                logger.debug(
+                    f"IOPS={metrics.iops}, "
+                    f"THR={metrics.throughput_bytes}, "
+                    f"LAT={metrics.latency_ms}"
+                )
+
+                if push_gateway and time.time() - last_push > polling:
+                    maybe_push_metrics(push_gateway, job_name)
+                    last_push = time.time()
+
+                    logger.info(
+                        f"Pushing metrics to {push_gateway}, "
+                        f"job={job_name}"
+                    )
+                runtime_state.reader_running = False
+        finally:
             runtime_state.reader_running = False
 
 #TODO дописать работу офлайн

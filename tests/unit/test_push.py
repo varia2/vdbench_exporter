@@ -61,13 +61,15 @@ async def test_follow_output_updates_metrics(
 ):
     output_file = tmp_path / "flatfile.html"
 
-    output_file.write_text("")
+    output_file.write_text(
+        "Rate Resp MB/sec\n"
+    )
 
     async def writer():
         await asyncio.sleep(0.2)
 
         with output_file.open("a") as f:
-            f.write("1000 10.5 1.2\n")
+            f.write("1000 1.2 10.5\n")
             f.flush()
 
     controller = ShutdownController()
@@ -106,7 +108,9 @@ async def test_follow_output_updates_metrics(
 async def test_follow_output_ignores_invalid(mock_push, tmp_path):
     output_file = tmp_path / "flatfile.html"
 
-    output_file.write_text("")
+    output_file.write_text(
+        "Rate Resp MB/sec\n"
+    )
 
     async def writer():
         await asyncio.sleep(0.2)

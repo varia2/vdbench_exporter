@@ -17,13 +17,15 @@ from src.shutdown import ShutdownController
 async def test_follow_vdbench_output(tmp_path):
     output_file = tmp_path / "flatfile.html"
 
-    output_file.write_text("")
+    output_file.write_text(
+        "Rate Resp MB/sec\n"
+    )
 
     async def writer():
         await asyncio.sleep(0.2)
 
         with output_file.open("a") as f:
-            f.write("1000 10.5 1.2\n")
+            f.write("1000 1.2 10.5\n")
             f.flush()
 
     controller = ShutdownController()
