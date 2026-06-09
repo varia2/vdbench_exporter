@@ -1,26 +1,36 @@
-import pytest
-
-class FakeStream:
-    def __init__(self, lines):
-        self.lines = lines
-        self.i = 0
-
-    async def readline(self):
-        if self.i >= len(self.lines):
-            return b""
-        line = self.lines[self.i]
-        self.i += 1
-        return line
+from src.vdbench_runner import (
+    parse_metrics_line
+)
 
 
-@pytest.mark.asyncio
-async def test_parse_stream():
-    from src.vdbench_runner import parse_vdbench_stream
+def test_parse_valid_line():
+    line = "1000 12.5 0.8"
 
-    stream = FakeStream([
-        b"iops 1000 latency 1.2\n",
-        b"iops 2000 latency 2.3\n"
-    ])
+    metrics = parse_metrics_line(line)
 
-    # просто проверяем что не падает
-    await parse_vdbench_stream(stream)
+    assert metrics is not None
+    assert metrics.iops == 1000
+    assert metrics.throughput_bytes == 12.5 * 1024 * 1024
+    assert metrics.latency_ms == 0.8
+
+
+def test_parse_invalid_line():
+    line = "invalid text"
+
+    metrics = parse_metrics_line(line)
+
+    assert metrics is None
+
+
+def test_parse_header_line():
+    line = "interval i/o MB/sec"
+
+    metrics = parse_metrics_line(line)
+
+    assert metrics is None
+
+
+def test_parse_empty_line():
+    metrics = parse_metrics_line("")
+
+    assert metrics is None

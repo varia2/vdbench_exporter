@@ -1,29 +1,29 @@
 from pathlib import Path
 
-def validate_file_arg(arg_name, file_path, optional=False):
+def validate_file_arg(
+    arg_name,
+    file_path,
+    optional=False,
+    must_exist=True
+):
     if not optional and not file_path:
         raise ValueError(f"--{arg_name} is required")
 
     if optional and not file_path:
         return
+
     path = Path(file_path)
 
-    if not path.exists():
-        raise ValueError(f"{arg_name} does not exist: {path}")
-
-    if not path.is_file():
-        raise ValueError(f"{arg_name} is not a file: {path}")
+    if must_exist and not path.exists():
+        raise ValueError(
+            f"{arg_name} does not exist: {path}"
+        )
 
 def validate_args(args):
-    # --- port ---
     if not (1 <= args.port <= 65535):
         raise ValueError(f"Invalid port: {args.port}")
 
-    validate_file_arg("vdbench_path", args.vdbench_path)
-    validate_file_arg("workload_config", args.workload_config, True)
-
-    if args.mode == "offline":
-        validate_file_arg("input_file", args.input_file)
+    validate_file_arg("output_file", args.output_file, must_exist=False)
 
 def get_default_lun():
     return str(Path("vdbench_testfile").absolute())

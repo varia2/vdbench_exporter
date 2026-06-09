@@ -1,34 +1,40 @@
 import pytest
-from src.main import validate_args
+
+from src.utils import validate_args
 
 
 class Args:
-    def __init__(self, mode, port=8000, vdbench_path=None, input_file=None):
-        self.mode = mode
+    def __init__(
+            self,
+            output_file="output/flatfile.html",
+            port=8000
+    ):
+        self.output_file = output_file
         self.port = port
-        self.vdbench_path = vdbench_path
-        self.input_file = input_file
 
 
-def test_invalid_port():
-    args = Args(mode="online", port=99999)
+def test_valid_args():
+    args = Args()
+
+    validate_args(args)
+
+
+def test_invalid_port_low():
+    args = Args(port=0)
+
     with pytest.raises(ValueError):
         validate_args(args)
 
 
-def test_missing_vdbench_path():
-    args = Args(mode="online")
+def test_invalid_port_high():
+    args = Args(port=70000)
+
     with pytest.raises(ValueError):
         validate_args(args)
 
 
-def test_missing_input_file():
-    args = Args(mode="offline")
-    with pytest.raises(ValueError):
-        validate_args(args)
-
-def test_missing_workload():
-    args = Args(mode="online", vdbench_path="vdbench.bat")
+def test_missing_output_file():
+    args = Args(output_file=None)
 
     with pytest.raises(ValueError):
         validate_args(args)

@@ -2,6 +2,7 @@ import asyncio
 import re
 import time
 from pathlib import Path
+from dataclasses import dataclass
 from prometheus_client import REGISTRY
 
 from prometheus_client import push_to_gateway
@@ -15,56 +16,97 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Чтение iops, mbs, latency
 METRICS_RE = re.compile(
     r"(?P<iops>\d+)\s+(?P<mbs>\d+\.?\d*)\s+(?P<lat>\d+\.?\d*)"
 )
 
-async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench", polling=5):
-    last_push = 0
-    while True:
-        raw = await stream.readline()
-        if not raw:
-            break
+@dataclass
+class VdbenchMetrics:
+    iops: float
+    throughput_bytes: float
+    latency_ms: float
 
-        line = decode_line(raw)
-        # logger.debug(line)
+def parse_metrics_line(line: str) -> VdbenchMetrics | None:
+    if not is_valid_line(line):
+        return None
 
-        if not is_valid_line(line):
-            continue
+    match = METRICS_RE.search(line)
 
-        match = METRICS_RE.search(line)
-        if not match:
-            continue
+    if not match:
+        return None
 
-        iops_val = float(match.group("iops"))
-        mbs_val = float(match.group("mbs"))
-        lat_val = float(match.group("lat"))
-
-        iops.set(iops_val)
-        throughput.set(mbs_val * 1024 * 1024)
-        latency.set(lat_val)
-
-        if push_gateway and time.time() - last_push > polling:
-            push_metrics(push_gateway, job_name)
-            last_push = time.time()
-            logger.info(
-                f"Pushing metrics to {push_gateway}, "
-                f"job={job_name}"
-            )
-
-async def run_vdbench(vdbench_executable: str, workload_file: str, push_gateway=None, job_name="vdbench", polling=5):
-    proc = await asyncio.create_subprocess_exec(
-        vdbench_executable,
-        "-f", workload_file,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT
+    return VdbenchMetrics(
+        iops=float(match.group("iops")),
+        throughput_bytes=float(match.group("mbs")) * 1024 * 1024,
+        latency_ms=float(match.group("lat"))
     )
 
-    logger.info(f"Starting Vdbench: {vdbench_executable}")
-    logger.info(f"Workload: {workload_file}")
+def export_metrics(metrics: VdbenchMetrics):
+    iops.set(metrics.iops)
+    throughput.set(metrics.throughput_bytes)
+    latency.set(metrics.latency_ms)
 
-    await parse_vdbench_stream(proc.stdout, push_gateway, job_name, polling)
+def maybe_push_metrics(
+        push_gateway: str | None,
+        job_name: str
+):
+    if push_gateway:
+        push_metrics(push_gateway, job_name)
+
+async def follow_vdbench_output(
+        file_path: str,
+        shutdown_controller,
+        runtime_state,
+        push_gateway=None,
+        job_name="vdbench",
+        polling=5
+):
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"VDbench output file not found: {file_path}"
+        )
+
+    logger.info(f"Following VDbench output: {file_path}")
+
+    last_push = 0
+
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        f.seek(0, 2)
+        runtime_state.reader_running = True
+        while not shutdown_controller.is_stopped:
+            line = f.readline()
+
+            if not line:
+                await asyncio.sleep(0.2)
+                continue
+
+            line = line.strip()
+
+            metrics = parse_metrics_line(line)
+
+            if not metrics:
+                continue
+
+            export_metrics(metrics)
+            runtime_state.mark_metrics_update()
+
+            logger.debug(
+                f"IOPS={metrics.iops}, "
+                f"THR={metrics.throughput_bytes}, "
+                f"LAT={metrics.latency_ms}"
+            )
+
+            if push_gateway and time.time() - last_push > polling:
+                maybe_push_metrics(push_gateway, job_name)
+                last_push = time.time()
+
+                logger.info(
+                    f"Pushing metrics to {push_gateway}, "
+                    f"job={job_name}"
+                )
+            runtime_state.reader_running = False
 
 #TODO дописать работу офлайн
 async def run_offline(file_path: str):

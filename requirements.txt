@@ -1,3 +1,6 @@
 prometheus-client
 pytest
 pytest-asyncio
+fastapi
+uvicorn
+httpx
