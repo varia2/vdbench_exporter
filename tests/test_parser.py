@@ -1,6 +1,5 @@
 from src.vdbench_runner import (
-    parse_metrics_line,
-    VdbenchMetrics
+    parse_metrics_line
 )
 
 
