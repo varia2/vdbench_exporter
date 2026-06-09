@@ -9,6 +9,9 @@ class RuntimeState:
 
         self.reader_running = False
 
+        self.last_raw_line = None
+        self.last_metrics = None
+
     def mark_metrics_update(self):
         self.last_metrics_update = time.time()
 
@@ -24,3 +27,7 @@ class RuntimeState:
         return int(
             time.time() - self.last_metrics_update
         )
+
+    @property
+    def has_metrics(self):
+        return self.last_raw_line is not None

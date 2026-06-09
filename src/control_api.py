@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+import logging
 
+logger = logging.getLogger(__name__)
 
 def create_control_api(
         controller,
@@ -21,7 +23,6 @@ def create_control_api(
             stale = (
                     runtime_state.seconds_since_last_update > 30
             )
-
         return {
             "status": "degraded" if stale else "ok",
 
@@ -44,7 +45,15 @@ def create_control_api(
                 stop_mode,
 
             "uptime_seconds":
-                runtime_state.uptime_seconds
+                runtime_state.uptime_seconds,
+
+            "last_raw_line":
+                runtime_state.last_raw_line,
+            "last_metrics": {
+                "iops": runtime_state.last_metrics.iops,
+                "latency": runtime_state.last_metrics.latency_ms,
+                "throughput": runtime_state.last_metrics.throughput_bytes,
+            }
         }
 
     @app.post("/shutdown")

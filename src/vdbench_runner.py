@@ -148,6 +148,8 @@ async def follow_vdbench_output(
                 if not metrics:
                     continue
 
+                runtime_state.last_raw_line = line
+                runtime_state.last_metrics = metrics
                 export_metrics(metrics)
                 runtime_state.mark_metrics_update()
 

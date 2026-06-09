@@ -5,6 +5,8 @@ from pathlib import Path
 import requests
 import logging
 
+from src.vdbench_runner import parse_metrics_line, discover_flatfile_schema
+
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,13 @@ def get_health():
         timeout=5
     ).json()
 
+def get_runtime_line():
+    health = requests.get(
+        "http://localhost:8080/health"
+    ).json()
+
+    return health["last_raw_line"]
+
 
 def wait_for_metrics_update(timeout=30):
     before = get_health()["last_metrics_update"]
@@ -93,6 +102,47 @@ def wait_for_metrics_update(timeout=30):
 
     raise AssertionError(
         "Exporter did not process new metrics"
+    )
+
+from dataclasses import dataclass
+
+@dataclass
+class MetricsSnapshot:
+    timestamp: float
+
+    vd_iops: float
+    vd_lat: float
+    vd_thr: float
+
+    exp_iops: float
+    exp_lat: float
+    exp_thr: float
+
+    prom_iops: float
+    prom_lat: float
+    prom_thr: float
+
+def collect_snapshot():
+    vd_iops, vd_mbs, vd_lat = get_last_vdbench_values(
+        "output/flatfile.html"
+    )
+
+    exporter = get_exporter_metrics()
+
+    return MetricsSnapshot(
+        timestamp=time.time(),
+
+        vd_iops=vd_iops,
+        vd_lat=vd_lat,
+        vd_thr=vd_mbs * 1024 * 1024,
+
+        exp_iops=exporter["iops"],
+        exp_lat=exporter["latency"],
+        exp_thr=exporter["throughput"],
+
+        prom_iops=prom_query("vdbench_iops"),
+        prom_lat=prom_query("vdbench_latency"),
+        prom_thr=prom_query("vdbench_throughput"),
     )
 
 
@@ -135,32 +185,127 @@ def test_metrics_consistency():
 
     exporter = get_exporter_metrics()
 
-    vd_iops, vd_mbs, vd_lat = get_last_vdbench_values(
-        "output/flatfile.html"
+    health = requests.get(
+        "http://localhost:8080/health"
+    ).json()
+
+    metrics = health["last_metrics"]
+
+    assert metrics is not None
+
+    assert exporter["iops"] == metrics["iops"]
+
+    assert abs(
+        exporter["latency"]
+        - metrics["latency"]
+    ) < 0.01
+
+    assert abs(
+        exporter["throughput"]
+        - metrics["throughput"]
+    ) < 1
+def test_vdbench_exporter_consistency_over_time():
+    schema = discover_flatfile_schema(
+        Path("output/flatfile.html")
     )
 
-    prom_iops = prom_query("vdbench_iops")
-    prom_lat = prom_query("vdbench_latency")
-    prom_thr = prom_query("vdbench_throughput")
+    mismatches = []
 
-    assert exporter["iops"] == vd_iops
+    samples = 5
 
-    assert abs(
-        exporter["latency"] - vd_lat
-    ) < 0.01
+    logger.info(
+        f"Collecting {samples} consistency samples"
+    )
 
-    expected_thr = vd_mbs * 1024 * 1024
+    for idx in range(samples):
 
-    assert abs(
-        exporter["throughput"] - expected_thr
-    ) < 1
+        wait_for_metrics_update()
 
-    assert prom_iops == exporter["iops"]
+        health = requests.get(
+            "http://localhost:8080/health"
+        ).json()
 
-    assert abs(
-        prom_lat - exporter["latency"]
-    ) < 0.01
+        metrics = health["last_metrics"]
+        line = health["last_raw_line"]
 
-    assert abs(
-        prom_thr - exporter["throughput"]
-    ) < 1
+        assert metrics is not None
+
+        exporter = get_exporter_metrics()
+
+        logger.info(
+            f"[{idx + 1}/{samples}] "
+            f"LINE={line}"
+        )
+
+        logger.info(
+            f"[{idx + 1}/{samples}] "
+            f"PARSED="
+            f"(iops={metrics["iops"]}, "
+            f"lat={metrics["latency"]}, "
+            f"thr={metrics["throughput"]}) "
+            f"EXPORTER="
+            f"(iops={exporter['iops']}, "
+            f"lat={exporter['latency']}, "
+            f"thr={exporter['throughput']})"
+        )
+
+        errors = []
+
+        if exporter["iops"] != metrics["iops"]:
+            errors.append(
+                f"IOPS mismatch: "
+                f"parsed={metrics["iops"]}, "
+                f"exporter={exporter['iops']}"
+            )
+
+        if abs(
+                exporter["latency"]
+                - metrics["latency"]
+        ) > 0.01:
+            errors.append(
+                f"Latency mismatch: "
+                f"parsed={metrics["latency"]}, "
+                f"exporter={exporter['latency']}"
+            )
+
+        if abs(
+                exporter["throughput"]
+                - metrics["throughput"]
+        ) > 1:
+            errors.append(
+                f"Throughput mismatch: "
+                f"parsed={metrics["throughput"]}, "
+                f"exporter={exporter['throughput']}"
+            )
+
+        if errors:
+            mismatches.append(
+                {
+                    "sample": idx,
+                    "line": line,
+                    "errors": errors
+                }
+            )
+
+    logger.info(
+        f"Samples collected: {samples}"
+    )
+
+    logger.info(
+        f"Mismatches found: {len(mismatches)}"
+    )
+
+    if mismatches:
+        for mismatch in mismatches:
+            logger.error(
+                f"Sample #{mismatch['sample']}"
+            )
+
+            logger.error(
+                f"Line: {mismatch['line']}"
+            )
+
+            for err in mismatch["errors"]:
+                logger.error(err)
+
+    assert not mismatches
