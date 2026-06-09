@@ -1,11 +1,11 @@
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
 import logging
 
-from src.vdbench_runner import parse_metrics_line, discover_flatfile_schema
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -104,7 +104,6 @@ def wait_for_metrics_update(timeout=30):
         "Exporter did not process new metrics"
     )
 
-from dataclasses import dataclass
 
 @dataclass
 class MetricsSnapshot:
@@ -205,9 +204,6 @@ def test_metrics_consistency():
         - metrics["throughput"]
     ) < 1
 def test_vdbench_exporter_consistency_over_time():
-    schema = discover_flatfile_schema(
-        Path("output/flatfile.html")
-    )
 
     mismatches = []
 

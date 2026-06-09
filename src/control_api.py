@@ -50,9 +50,9 @@ def create_control_api(
             "last_raw_line":
                 runtime_state.last_raw_line,
             "last_metrics": {
-                "iops": runtime_state.last_metrics.iops,
-                "latency": runtime_state.last_metrics.latency_ms,
-                "throughput": runtime_state.last_metrics.throughput_bytes,
+                "iops": runtime_state.last_metrics.iops if runtime_state.last_metrics else None,
+                "latency": runtime_state.last_metrics.latency_ms if runtime_state.last_metrics else None,
+                "throughput": runtime_state.last_metrics.throughput_bytes if runtime_state.last_metrics else None,
             }
         }
 
