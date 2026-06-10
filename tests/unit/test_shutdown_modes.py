@@ -28,6 +28,7 @@ async def test_infinite_mode_starts_only_reader(
         polling = 5
 
         stop_mode = "infinite"
+        trace_file = "output/exporter_trace.jsonl"
 
     controller = ShutdownController()
     runtime_state = RuntimeState()
@@ -56,6 +57,7 @@ async def test_timer_mode_starts_timeout_task(
 
         stop_mode = "timer"
         duration = 10
+        trace_file = "output/exporter_trace.jsonl"
 
     controller = ShutdownController()
     runtime_state = RuntimeState()
@@ -84,6 +86,7 @@ async def test_api_mode_starts_api_server(
 
         stop_mode = "api"
         api_port = 8080
+        trace_file = "output/exporter_trace.jsonl"
 
     controller = ShutdownController()
     runtime_state = RuntimeState()

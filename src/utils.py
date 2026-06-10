@@ -1,4 +1,8 @@
+import json
 from pathlib import Path
+
+from src.vdbench_runner import VdbenchMetrics
+
 
 def validate_file_arg(
     arg_name,
@@ -24,6 +28,7 @@ def validate_args(args):
         raise ValueError(f"Invalid port: {args.port}")
 
     validate_file_arg("output_file", args.output_file, must_exist=False)
+    validate_file_arg("trace_file", args.trace_file, optional=True, must_exist=False)
 
 def get_default_lun():
     return str(Path("vdbench_testfile").absolute())

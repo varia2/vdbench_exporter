@@ -1,3 +1,4 @@
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from pathlib import Path
 import requests
 import logging
 
+from src.vdbench_runner import parse_metrics_line, discover_flatfile_schema
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -20,7 +22,10 @@ initial_lines = len(
 )
 
 def prom_query(metric):
-    r = requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    r = session.get(
         "http://localhost:9090/api/v1/query",
         params={"query": metric},
         timeout=5,
@@ -31,7 +36,10 @@ def prom_query(metric):
     return float(result[0]["value"][1])
 
 def get_exporter_metrics():
-    text = requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    text = session.get(
         "http://localhost:8000/metrics"
     ).text
 
@@ -74,13 +82,19 @@ def get_last_vdbench_values(path):
     raise RuntimeError("No metrics found")
 
 def get_health():
-    return requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    return session.get(
         "http://localhost:8080/health",
         timeout=5
     ).json()
 
 def get_runtime_line():
-    health = requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    health = session.get(
         "http://localhost:8080/health"
     ).json()
 
@@ -146,7 +160,10 @@ def collect_snapshot():
 
 
 def test_health():
-    r = requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    r = session.get(
         "http://localhost:8080/health",
         timeout=5
     )
@@ -155,7 +172,10 @@ def test_health():
 
 
 def test_metrics():
-    r = requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    r = session.get(
         "http://localhost:8000/metrics",
         timeout=5
     )
@@ -166,142 +186,230 @@ def test_metrics():
 
 
 def test_prometheus_target():
-    r = requests.get(
+    session = requests.Session()
+    session.trust_env = False
+
+    r = session.get(
         "http://localhost:9090/api/v1/query",
         params={
             "query": 'up{job="vdbench"}'
         },
         timeout=5
     )
+    prom_query('up{job="vdbench"}')
 
     result = r.json()["data"]["result"]
 
     assert result
     assert result[0]["value"][1] == "1"
 
-def test_metrics_consistency():
-    wait_for_metrics_update()
+def test_exporter_trace_consistency():
+    flatfile = Path("output/flatfile.html")
+    tracefile = Path("output/exporter_trace.jsonl")
 
-    exporter = get_exporter_metrics()
-
-    health = requests.get(
-        "http://localhost:8080/health"
-    ).json()
-
-    metrics = health["last_metrics"]
-
-    assert metrics is not None
-
-    assert exporter["iops"] == metrics["iops"]
-
-    assert abs(
-        exporter["latency"]
-        - metrics["latency"]
-    ) < 0.01
-
-    assert abs(
-        exporter["throughput"]
-        - metrics["throughput"]
-    ) < 1
-def test_vdbench_exporter_consistency_over_time():
-
-    mismatches = []
-
-    samples = 5
-
-    logger.info(
-        f"Collecting {samples} consistency samples"
+    assert flatfile.exists(), (
+        f"Missing flatfile: {flatfile}"
     )
 
-    for idx in range(samples):
+    assert tracefile.exists(), (
+        f"Missing trace file: {tracefile}"
+    )
 
-        wait_for_metrics_update()
+    schema = discover_flatfile_schema(flatfile)
 
-        health = requests.get(
-            "http://localhost:8080/health"
-        ).json()
+    logger.info("Reading exporter trace...")
 
-        metrics = health["last_metrics"]
-        line = health["last_raw_line"]
+    trace_entries = []
 
-        assert metrics is not None
+    with tracefile.open(
+            encoding="utf-8"
+    ) as f:
+        for raw in f:
+            raw = raw.strip()
 
-        exporter = get_exporter_metrics()
+            if not raw:
+                continue
 
-        logger.info(
-            f"[{idx + 1}/{samples}] "
-            f"LINE={line}"
+            trace_entries.append(
+                json.loads(raw)
+            )
+
+    assert trace_entries, (
+        "Trace file is empty"
+    )
+
+    logger.info(
+        f"Trace entries: {len(trace_entries)}"
+    )
+
+    logger.info("Parsing flatfile...")
+
+    flat_lines = []
+    parsed_entries = []
+
+    with flatfile.open(
+            encoding="utf-8",
+            errors="ignore"
+    ) as f:
+
+        for raw_line in f:
+            line = raw_line.strip()
+
+            metrics = parse_metrics_line(
+                line,
+                schema
+            )
+
+            if not metrics:
+                continue
+
+            flat_lines.append(line)
+
+            parsed_entries.append(
+                {
+                    "line": line,
+                    "iops": metrics.iops,
+                    "throughput": metrics.throughput_bytes,
+                    "latency": metrics.latency_ms,
+                }
+            )
+
+    assert parsed_entries, (
+        "No metrics found in flatfile"
+    )
+
+    logger.info(
+        f"Flatfile entries: {len(parsed_entries)}"
+    )
+
+    trace_lines = [
+        entry["line"]
+        for entry in trace_entries
+    ]
+
+    #
+    # Ищем первую строку trace в flatfile
+    #
+    start_idx = None
+
+    for i, line in enumerate(flat_lines):
+        if line == trace_lines[0]:
+            start_idx = i
+            break
+
+    assert start_idx is not None, (
+        "First trace line not found in flatfile"
+    )
+
+    logger.info(
+        f"Trace starts at flatfile index {start_idx}"
+    )
+
+    remaining = flat_lines[start_idx:]
+
+    assert len(remaining) >= len(trace_lines), (
+        f"Flatfile tail shorter than trace: "
+        f"{len(remaining)} < {len(trace_lines)}"
+    )
+
+    #
+    # Проверяем отсутствие потерь строк
+    #
+    line_mismatches = []
+
+    for idx, trace_line in enumerate(trace_lines):
+
+        if remaining[idx] != trace_line:
+            line_mismatches.append(
+                {
+                    "index": idx,
+                    "trace": trace_line,
+                    "flat": remaining[idx]
+                }
+            )
+
+    if line_mismatches:
+        logger.error(
+            f"Line mismatches: "
+            f"{len(line_mismatches)}"
         )
 
-        logger.info(
-            f"[{idx + 1}/{samples}] "
-            f"PARSED="
-            f"(iops={metrics["iops"]}, "
-            f"lat={metrics["latency"]}, "
-            f"thr={metrics["throughput"]}) "
-            f"EXPORTER="
-            f"(iops={exporter['iops']}, "
-            f"lat={exporter['latency']}, "
-            f"thr={exporter['throughput']})"
-        )
+        for mismatch in line_mismatches[:10]:
+            logger.error(
+                f"#{mismatch['index']}\n"
+                f"TRACE: {mismatch['trace']}\n"
+                f"FLAT : {mismatch['flat']}"
+            )
 
+    assert not line_mismatches
+
+    #
+    # Выравниваем parsed_entries по найденной позиции
+    #
+    aligned_parsed = parsed_entries[
+        start_idx:start_idx + len(trace_entries)
+    ]
+
+    assert len(aligned_parsed) == len(trace_entries)
+
+    metric_mismatches = []
+
+    for idx, (
+            trace,
+            parsed
+    ) in enumerate(
+        zip(trace_entries, aligned_parsed)
+    ):
         errors = []
 
-        if exporter["iops"] != metrics["iops"]:
+        if trace["iops"] != parsed["iops"]:
             errors.append(
                 f"IOPS mismatch: "
-                f"parsed={metrics["iops"]}, "
-                f"exporter={exporter['iops']}"
+                f"trace={trace['iops']}, "
+                f"parsed={parsed['iops']}"
             )
 
         if abs(
-                exporter["latency"]
-                - metrics["latency"]
-        ) > 0.01:
+                trace["latency"]
+                - parsed["latency"]
+        ) > 0.0001:
             errors.append(
                 f"Latency mismatch: "
-                f"parsed={metrics["latency"]}, "
-                f"exporter={exporter['latency']}"
+                f"trace={trace['latency']}, "
+                f"parsed={parsed['latency']}"
             )
 
         if abs(
-                exporter["throughput"]
-                - metrics["throughput"]
+                trace["throughput"]
+                - parsed["throughput"]
         ) > 1:
             errors.append(
                 f"Throughput mismatch: "
-                f"parsed={metrics["throughput"]}, "
-                f"exporter={exporter['throughput']}"
+                f"trace={trace['throughput']}, "
+                f"parsed={parsed['throughput']}"
             )
 
         if errors:
-            mismatches.append(
+            metric_mismatches.append(
                 {
-                    "sample": idx,
-                    "line": line,
-                    "errors": errors
+                    "index": idx,
+                    "errors": errors,
+                    "trace": trace,
+                    "parsed": parsed,
                 }
             )
 
     logger.info(
-        f"Samples collected: {samples}"
+        f"Metric mismatches: "
+        f"{len(metric_mismatches)}"
     )
 
-    logger.info(
-        f"Mismatches found: {len(mismatches)}"
-    )
+    for mismatch in metric_mismatches[:10]:
+        logger.error(
+            f"Entry #{mismatch['index']}"
+        )
 
-    if mismatches:
-        for mismatch in mismatches:
-            logger.error(
-                f"Sample #{mismatch['sample']}"
-            )
+        for err in mismatch["errors"]:
+            logger.error(err)
 
-            logger.error(
-                f"Line: {mismatch['line']}"
-            )
-
-            for err in mismatch["errors"]:
-                logger.error(err)
-
-    assert not mismatches
+    assert not metric_mismatches

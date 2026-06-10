@@ -82,7 +82,8 @@ async def test_follow_output_updates_metrics(
             runtime_state=runtime_state,
             push_gateway="http://localhost:9091",
             job_name="test_job",
-            polling=0
+            polling=0,
+            trace_file=""
         )
     )
 
@@ -129,7 +130,8 @@ async def test_follow_output_ignores_invalid(mock_push, tmp_path):
             push_gateway="http://localhost:9091",
             polling=0,
             shutdown_controller=controller,
-            runtime_state=runtime_state
+            runtime_state=runtime_state,
+            trace_file=""
         )
     )
 

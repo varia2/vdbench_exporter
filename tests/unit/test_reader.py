@@ -31,7 +31,7 @@ async def test_follow_vdbench_output(tmp_path):
     controller = ShutdownController()
     runtime_state = RuntimeState()
     reader_task = asyncio.create_task(
-        follow_vdbench_output(str(output_file), controller, runtime_state)
+        follow_vdbench_output(str(output_file), controller, runtime_state, trace_file="")
     )
 
     writer_task = asyncio.create_task(writer())

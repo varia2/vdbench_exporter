@@ -81,6 +81,12 @@ def parse_args(argv=None):
         help="Control API port"
     )
 
+    parser.add_argument(
+        "--trace-file",
+        type=str,
+        help="File path to trace"
+    )
+
     return parser.parse_args(argv)
 
 async def stop_after_timeout(controller, seconds):
@@ -95,7 +101,8 @@ async def start_app(args, controller, runtime_state):
             runtime_state,
             push_gateway=args.push_gateway,
             job_name=args.job_name,
-            polling=args.polling
+            polling=args.polling,
+            trace_file=args.trace_file
         )
     )
 

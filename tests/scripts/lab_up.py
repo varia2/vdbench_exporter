@@ -74,6 +74,8 @@ def main():
             str(OUTPUT),
             "--stop-mode",
             "api",
+            "--trace-file",
+            "output/exporter_trace.jsonl"
         ],
         creationflags=subprocess.CREATE_NEW_CONSOLE,
     )

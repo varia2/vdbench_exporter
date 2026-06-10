@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import time
 from pathlib import Path
@@ -96,13 +97,40 @@ def maybe_push_metrics(
     if push_gateway:
         push_metrics(push_gateway, job_name)
 
+def trace_metrics(
+        trace_file: str,
+        line: str,
+        metrics: VdbenchMetrics
+):
+    if not trace_file:
+        return
+
+    with open(
+            trace_file,
+            "a",
+            encoding="utf-8"
+    ) as f:
+        json.dump(
+            {
+                "line": line,
+
+                "iops": metrics.iops,
+                "throughput": metrics.throughput_bytes,
+                "latency": metrics.latency_ms
+            },
+            f
+        )
+
+        f.write("\n")
+
 async def follow_vdbench_output(
         file_path: str,
         shutdown_controller,
         runtime_state,
+        trace_file: str,
         push_gateway=None,
         job_name="vdbench",
-        polling=5
+        polling=5,
 ):
     path = Path(file_path)
 
@@ -142,16 +170,21 @@ async def follow_vdbench_output(
                 )
 
                 logger.info(f"LINE={line}")
-
                 logger.info(f"PARSED={metrics}")
 
                 if not metrics:
                     continue
-
                 runtime_state.last_raw_line = line
                 runtime_state.last_metrics = metrics
                 export_metrics(metrics)
                 runtime_state.mark_metrics_update()
+
+                if trace_file:
+                    trace_metrics(
+                        trace_file,
+                        line,
+                        metrics
+                    )
 
                 logger.debug(
                     f"IOPS={metrics.iops}, "

@@ -11,7 +11,10 @@ logging.basicConfig(
 
 def stop_exporter():
     try:
-        r = requests.post(
+        session = requests.Session()
+        session.trust_env = False
+
+        r = session.post(
             "http://localhost:8080/shutdown",
             timeout=5,
         )
