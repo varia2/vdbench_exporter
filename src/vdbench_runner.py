@@ -100,7 +100,8 @@ def maybe_push_metrics(
 def trace_metrics(
         trace_file: str,
         line: str,
-        metrics: VdbenchMetrics
+        metrics: VdbenchMetrics,
+        file_mtime : float,
 ):
     if not trace_file:
         return
@@ -113,6 +114,9 @@ def trace_metrics(
         json.dump(
             {
                 "line": line,
+                "processed_at": time.time(),
+
+                "flatfile_mtime": file_mtime,
 
                 "iops": metrics.iops,
                 "throughput": metrics.throughput_bytes,
@@ -131,6 +135,7 @@ async def follow_vdbench_output(
         push_gateway=None,
         job_name="vdbench",
         polling=5,
+        schema=None
 ):
     path = Path(file_path)
 
@@ -142,8 +147,9 @@ async def follow_vdbench_output(
 
     last_push = 0
     with path.open("r", encoding="utf-8", errors="ignore") as f:
-        logger.info("Discovering flatfile schema...")
-        schema = discover_flatfile_schema(path)
+        if not schema:
+            logger.info("Discovering flatfile schema...")
+            schema = discover_flatfile_schema(path)
 
         logger.info(
             f"SCHEMA: "
@@ -156,6 +162,7 @@ async def follow_vdbench_output(
         runtime_state.reader_running = True
         try:
             while not shutdown_controller.is_stopped:
+                file_mtime = path.stat().st_mtime
                 line = f.readline()
 
                 if not line:
@@ -183,7 +190,8 @@ async def follow_vdbench_output(
                     trace_metrics(
                         trace_file,
                         line,
-                        metrics
+                        metrics,
+                        file_mtime
                     )
 
                 logger.debug(

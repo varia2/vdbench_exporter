@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 import requests
 import logging
 
@@ -20,6 +21,8 @@ initial_lines = len(
         errors="ignore"
     ).splitlines()
 )
+
+pytestmark = pytest.mark.integration
 
 def prom_query(metric):
     session = requests.Session()

@@ -1,7 +1,5 @@
-import json
 from pathlib import Path
 
-from src.vdbench_runner import VdbenchMetrics
 
 
 def validate_file_arg(
