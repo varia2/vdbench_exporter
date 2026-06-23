@@ -12,8 +12,20 @@ class RuntimeState:
         self.last_raw_line = None
         self.last_metrics = None
 
-    def mark_metrics_update(self):
+        self.processed_lines = 0
+        self.mode = None
+        self.offline_completed = False
+
+    def mark_metrics_update(self, raw_line=None, metrics=None):
         self.last_metrics_update = time.time()
+
+        if raw_line is not None:
+            self.last_raw_line = raw_line
+
+        if metrics is not None:
+            self.last_metrics = metrics
+
+        self.processed_lines += 1
 
     @property
     def uptime_seconds(self):
