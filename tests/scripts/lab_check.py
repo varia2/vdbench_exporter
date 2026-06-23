@@ -1,5 +1,6 @@
 import requests
 import logging
+from tests.config import EXPORTER_HEALTH_URL, EXPORTER_METRICS_URL, PROMETHEUS_QUERY_URL
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,7 @@ logging.basicConfig(
 
 def check_health():
     r = requests.get(
-        "http://localhost:8080/health",
+        EXPORTER_HEALTH_URL,
         timeout=5,
     )
 
@@ -23,7 +24,7 @@ def check_health():
 
 def check_metrics():
     r = requests.get(
-        "http://localhost:8000/metrics",
+        EXPORTER_METRICS_URL,
         timeout=5,
     )
 
@@ -48,7 +49,7 @@ def check_metrics():
 
 def check_prometheus():
     r = requests.get(
-        "http://localhost:9090/api/v1/query",
+        PROMETHEUS_QUERY_URL,
         params={
             "query": 'up{job="vdbench"}'
         },

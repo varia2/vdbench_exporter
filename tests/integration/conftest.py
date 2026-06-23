@@ -13,7 +13,7 @@ def lab():
     print("\n=== Starting test lab ===")
 
     result = subprocess.run(
-        [sys.executable, "tests/scripts/lab_up.py"],
+        [sys.executable, "-m", "tests.scripts.lab_up"],
         capture_output=True,
         text=True
     )
@@ -31,6 +31,6 @@ def lab():
     print("\n=== Stopping test lab ===")
 
     subprocess.run(
-        [sys.executable, "tests/scripts/lab_down.py"],
+        [sys.executable, "-m", "tests.scripts.lab_down"],
         check=False
     )

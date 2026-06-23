@@ -1,8 +1,10 @@
-from pathlib import Path
 import subprocess
 import sys
 import time
 import shutil
+from tests.config import (VDBENCH, WORKLOAD, OUTPUT_DIR, GRAFANA_URL, PROMETHEUS_URL,
+                          EXPORTER_HEALTH_URL, EXPORTER_METRICS_URL, PROMETHEUS_CONTAINER_NAME,
+                          GRAFANA_CONTAINER_NAME)
 
 import logging
 
@@ -13,10 +15,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s"
 )
 
-VDBENCH = r"C:\Users\varia\Downloads\vdbench50407\vdbench50407\vdbench.bat"
-WORKLOAD = "workload.txt"
-
-OUTPUT_DIR = Path("output")
 OUTPUT = OUTPUT_DIR / "flatfile.html"
 
 
@@ -37,10 +35,10 @@ def ensure_container(name: str):
 
 def main():
     logger.info("Starting Prometheus...")
-    ensure_container("inspiring_vaughan")
+    ensure_container(PROMETHEUS_CONTAINER_NAME)
 
     logger.info("Starting Grafana...")
-    ensure_container("grafana")
+    ensure_container(GRAFANA_CONTAINER_NAME)
 
     if OUTPUT_DIR.exists():
         logger.info("Removing previous VDbench output...")
@@ -82,10 +80,10 @@ def main():
 
     logger.info("\n")
     logger.info("Environment started")
-    logger.info("Prometheus: http://localhost:9090")
-    logger.info("Grafana:    http://localhost:3000")
-    logger.info("Metrics:    http://localhost:8000/metrics")
-    logger.info("Health:     http://localhost:8080/health")
+    logger.info(f"Prometheus: {PROMETHEUS_URL}")
+    logger.info(f"Grafana:    {GRAFANA_URL}")
+    logger.info(f"Metrics:    {EXPORTER_METRICS_URL}")
+    logger.info(f"Health:     {EXPORTER_HEALTH_URL}")
 
 
 if __name__ == "__main__":

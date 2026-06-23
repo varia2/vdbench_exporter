@@ -1,3 +1,8 @@
+from tests.perfomance.constants import (
+    LAB_AVG_DETECTION_LATENCY_SEC,
+    LAB_P95_DETECTION_LATENCY_SEC,
+    LAB_SAMPLE_WAIT_TIMEOUT_SEC,
+)
 import json
 import statistics
 import time
@@ -48,7 +53,7 @@ def test_exporter_detection_latency():
     95-й перцентиль (P95);
     максимальная задержка (MAX).
     """
-    deadline = time.time() + 60
+    deadline = time.time() + LAB_SAMPLE_WAIT_TIMEOUT_SEC
 
     while True:
 
@@ -100,5 +105,5 @@ def test_exporter_detection_latency():
     # max <0.25
     #
 
-    assert avg_latency < 0.2
-    assert p95_latency < 0.3
+    assert avg_latency < LAB_AVG_DETECTION_LATENCY_SEC
+    assert p95_latency < LAB_P95_DETECTION_LATENCY_SEC

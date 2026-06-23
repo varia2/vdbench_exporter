@@ -24,8 +24,10 @@ async def test_main_creates_reader_task(
         push_gateway = "http://localhost:9091"
         job_name = "test_job"
         polling = 5
+        read_polling = 0.2
         stop_mode = "infinite"
         trace_file = "output/exporter_trace.jsonl"
+        api_port = 8080
 
     controller = ShutdownController()
     runtime_state = RuntimeState()
@@ -41,6 +43,7 @@ async def test_main_creates_reader_task(
         push_gateway="http://localhost:9091",
         job_name="test_job",
         polling=5,
+        read_polling=0.2,
         trace_file="output/exporter_trace.jsonl"
     )
 
@@ -53,8 +56,10 @@ async def test_main_does_not_crash(mock_follow):
         push_gateway = None
         job_name = "vdbench"
         polling = 5
+        read_polling = 0.2,
         stop_mode = "infinite"
         trace_file = "output/exporter_trace.jsonl"
+        api_port = 8080
 
     controller = ShutdownController()
     runtime_state = RuntimeState()

@@ -87,6 +87,13 @@ def parse_args(argv=None):
         help="File path to trace"
     )
 
+    parser.add_argument(
+        "--read-polling",
+        type=float,
+        default=0.2,
+        help="How often to poll VDbench flatfile for new lines (seconds)"
+    )
+
     return parser.parse_args(argv)
 
 async def stop_after_timeout(controller, seconds):
@@ -102,41 +109,41 @@ async def start_app(args, controller, runtime_state):
             push_gateway=args.push_gateway,
             job_name=args.job_name,
             polling=args.polling,
+            read_polling=args.read_polling,
             trace_file=args.trace_file
         )
     )
 
+    logger.info(
+        f"Starting control API on :{args.api_port} "
+        f"(stop_mode={args.stop_mode})"
+    )
+
+    api = create_control_api(
+        controller,
+        runtime_state,
+        args.output_file,
+        args.stop_mode
+    )
+
+    config = uvicorn.Config(
+        api,
+        host="0.0.0.0",
+        port=args.api_port,
+        log_level="info"
+    )
+
+    server = uvicorn.Server(config)
+    asyncio.create_task(server.serve())
+
     if args.stop_mode == "timer":
         logger.info(
-            f"Exporter will stop after "
-            f"{args.duration} seconds"
+            f"Exporter will stop after {args.duration} seconds"
         )
 
         asyncio.create_task(
-            stop_after_timeout(
-                controller,
-                args.duration
-            )
+            stop_after_timeout(controller, args.duration)
         )
-
-    if args.stop_mode == "api":
-        logger.info(
-            f"Starting control API "
-            f"on :{args.api_port}"
-        )
-
-        api = create_control_api(controller, runtime_state, args.output_file, args.stop_mode)
-
-        config = uvicorn.Config(
-            api,
-            host="0.0.0.0",
-            port=args.api_port,
-            log_level="info"
-        )
-
-        server = uvicorn.Server(config)
-
-        asyncio.create_task(server.serve())
 
 
 async def main():

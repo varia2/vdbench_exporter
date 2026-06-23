@@ -8,6 +8,10 @@ import pytest
 from src.runtime_state import RuntimeState
 from src.shutdown import ShutdownController
 from src.vdbench_runner import follow_vdbench_output, FlatfileSchema
+from tests.perfomance.constants import (
+    MICRO_P95_LATENCY_SEC,
+    TRACE_WAIT_TIMEOUT_SEC,
+)
 
 import logging
 
@@ -103,7 +107,7 @@ async def test_processing_latency(tmp_path):
 
             await asyncio.sleep(0.01)
 
-    deadline = time.time() + 10
+    deadline = time.time() + TRACE_WAIT_TIMEOUT_SEC
 
     while time.time() < deadline:
 
@@ -157,4 +161,4 @@ async def test_processing_latency(tmp_path):
         f"MAX={max_latency:.6f}s"
     )
 
-    assert p95_latency < 0.25
+    assert p95_latency < MICRO_P95_LATENCY_SEC

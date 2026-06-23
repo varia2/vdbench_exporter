@@ -26,9 +26,11 @@ async def test_infinite_mode_starts_only_reader(
         push_gateway = None
         job_name = "vdbench"
         polling = 5
+        read_polling = 0.2
 
         stop_mode = "infinite"
         trace_file = "output/exporter_trace.jsonl"
+        api_port = 8080
 
     controller = ShutdownController()
     runtime_state = RuntimeState()
@@ -36,7 +38,7 @@ async def test_infinite_mode_starts_only_reader(
     await start_app(Args, controller, runtime_state)
 
     # только reader task
-    assert mock_create_task.call_count == 1
+    assert mock_create_task.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -54,10 +56,12 @@ async def test_timer_mode_starts_timeout_task(
         push_gateway = None
         job_name = "vdbench"
         polling = 5
+        read_polling = 0.2
 
         stop_mode = "timer"
         duration = 10
         trace_file = "output/exporter_trace.jsonl"
+        api_port = 8080
 
     controller = ShutdownController()
     runtime_state = RuntimeState()
@@ -65,7 +69,7 @@ async def test_timer_mode_starts_timeout_task(
     await start_app(Args, controller, runtime_state)
 
     # reader + timer
-    assert mock_create_task.call_count == 2
+    assert mock_create_task.call_count == 3
 
 
 @pytest.mark.asyncio
@@ -83,6 +87,7 @@ async def test_api_mode_starts_api_server(
         push_gateway = None
         job_name = "vdbench"
         polling = 5
+        read_polling = 0.2
 
         stop_mode = "api"
         api_port = 8080

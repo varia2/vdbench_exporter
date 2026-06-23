@@ -1,6 +1,7 @@
 import requests
 import logging
 import subprocess
+from tests.config import EXPORTER_SHUTDOWN_URL, PROMETHEUS_CONTAINER_NAME, GRAFANA_CONTAINER_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ def stop_exporter():
         session.trust_env = False
 
         r = session.post(
-            "http://localhost:8080/shutdown",
+            EXPORTER_SHUTDOWN_URL,
             timeout=5,
         )
 
@@ -46,8 +47,8 @@ def stop_container(name):
 def main():
     stop_exporter()
 
-    stop_container("inspiring_vaughan")
-    stop_container("grafana")
+    stop_container(PROMETHEUS_CONTAINER_NAME)
+    stop_container(GRAFANA_CONTAINER_NAME)
 
     logger.info("Environment stopped")
 

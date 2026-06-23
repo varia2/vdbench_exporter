@@ -9,11 +9,12 @@ import requests
 import logging
 
 from src.vdbench_runner import parse_metrics_line, discover_flatfile_schema
+from tests.config import PROMETHEUS_QUERY_URL, OUTPUT_DIR, EXPORTER_METRICS_URL, EXPORTER_HEALTH_URL
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-flatfile = Path("output/flatfile.html")
+flatfile = OUTPUT_DIR / "flatfile.html"
 
 initial_lines = len(
     flatfile.read_text(
@@ -29,7 +30,7 @@ def prom_query(metric):
     session.trust_env = False
 
     r = session.get(
-        "http://localhost:9090/api/v1/query",
+        PROMETHEUS_QUERY_URL,
         params={"query": metric},
         timeout=5,
     )
@@ -43,7 +44,7 @@ def get_exporter_metrics():
     session.trust_env = False
 
     text = session.get(
-        "http://localhost:8000/metrics"
+        EXPORTER_METRICS_URL
     ).text
 
     def metric(name):
@@ -89,7 +90,7 @@ def get_health():
     session.trust_env = False
 
     return session.get(
-        "http://localhost:8080/health",
+        EXPORTER_HEALTH_URL,
         timeout=5
     ).json()
 
@@ -98,7 +99,7 @@ def get_runtime_line():
     session.trust_env = False
 
     health = session.get(
-        "http://localhost:8080/health"
+        EXPORTER_HEALTH_URL
     ).json()
 
     return health["last_raw_line"]
@@ -140,7 +141,7 @@ class MetricsSnapshot:
 
 def collect_snapshot():
     vd_iops, vd_mbs, vd_lat = get_last_vdbench_values(
-        "output/flatfile.html"
+        flatfile.as_posix()
     )
 
     exporter = get_exporter_metrics()
@@ -167,7 +168,7 @@ def test_health():
     session.trust_env = False
 
     r = session.get(
-        "http://localhost:8080/health",
+        EXPORTER_HEALTH_URL,
         timeout=5
     )
 
@@ -179,7 +180,7 @@ def test_metrics():
     session.trust_env = False
 
     r = session.get(
-        "http://localhost:8000/metrics",
+        EXPORTER_METRICS_URL,
         timeout=5
     )
 
@@ -193,7 +194,7 @@ def test_prometheus_target():
     session.trust_env = False
 
     r = session.get(
-        "http://localhost:9090/api/v1/query",
+        PROMETHEUS_QUERY_URL,
         params={
             "query": 'up{job="vdbench"}'
         },
@@ -234,8 +235,7 @@ def test_exporter_trace_consistency():
     Тест считается успешным, если вся последовательность строк, записанная в trace-файл экспортера,
      присутствует в flatfile без пропусков и перестановок.
     """
-    flatfile = Path("output/flatfile.html")
-    tracefile = Path("output/exporter_trace.jsonl")
+    tracefile = OUTPUT_DIR / "exporter_trace.jsonl"
 
     assert flatfile.exists(), (
         f"Missing flatfile: {flatfile}"

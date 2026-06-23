@@ -135,6 +135,7 @@ async def follow_vdbench_output(
         push_gateway=None,
         job_name="vdbench",
         polling=5,
+        read_polling=0.2,
         schema=None
 ):
     path = Path(file_path)
@@ -166,7 +167,7 @@ async def follow_vdbench_output(
                 line = f.readline()
 
                 if not line:
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(read_polling)
                     continue
 
                 line = line.strip()
