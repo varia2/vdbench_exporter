@@ -1,7 +1,9 @@
 import asyncio
+import json
 import re
 import time
 from pathlib import Path
+from dataclasses import dataclass
 from prometheus_client import REGISTRY
 
 from prometheus_client import push_to_gateway
@@ -15,56 +17,200 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Чтение iops, mbs, latency
 METRICS_RE = re.compile(
     r"(?P<iops>\d+)\s+(?P<mbs>\d+\.?\d*)\s+(?P<lat>\d+\.?\d*)"
 )
 
-async def parse_vdbench_stream(stream, push_gateway=None, job_name="vdbench", polling=5):
-    last_push = 0
-    while True:
-        raw = await stream.readline()
-        if not raw:
-            break
+@dataclass
+class VdbenchMetrics:
+    iops: float
+    throughput_bytes: float
+    latency_ms: float
 
-        line = decode_line(raw)
-        # logger.debug(line)
+@dataclass
+class FlatfileSchema:
+    rate_idx: int
+    resp_idx: int
+    mbs_idx: int
 
-        if not is_valid_line(line):
-            continue
+def parse_header(line: str) -> FlatfileSchema | None:
+    columns = line.split()
 
-        match = METRICS_RE.search(line)
-        if not match:
-            continue
+    if "Rate" not in columns or "Resp" not in columns or "MB/sec" not in columns:
+        return None
 
-        iops_val = float(match.group("iops"))
-        mbs_val = float(match.group("mbs"))
-        lat_val = float(match.group("lat"))
-
-        iops.set(iops_val)
-        throughput.set(mbs_val * 1024 * 1024)
-        latency.set(lat_val)
-
-        if push_gateway and time.time() - last_push > polling:
-            push_metrics(push_gateway, job_name)
-            last_push = time.time()
-            logger.info(
-                f"Pushing metrics to {push_gateway}, "
-                f"job={job_name}"
-            )
-
-async def run_vdbench(vdbench_executable: str, workload_file: str, push_gateway=None, job_name="vdbench", polling=5):
-    proc = await asyncio.create_subprocess_exec(
-        vdbench_executable,
-        "-f", workload_file,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT
+    return FlatfileSchema(
+        rate_idx=columns.index("Rate"),
+        resp_idx=columns.index("Resp"),
+        mbs_idx=columns.index("MB/sec")
     )
 
-    logger.info(f"Starting Vdbench: {vdbench_executable}")
-    logger.info(f"Workload: {workload_file}")
+def discover_flatfile_schema(path: Path, timeout: int=20) -> FlatfileSchema:
+    start = time.time()
 
-    await parse_vdbench_stream(proc.stdout, push_gateway, job_name, polling)
+    while time.time() - start < timeout:
+        with path.open(
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
+            for line in f:
+                schema = parse_header(line)
+
+                if schema:
+                    return schema
+
+    raise RuntimeError(
+        f"Could not find VDbench header in {path}"
+    )
+
+def parse_metrics_line(
+        line: str,
+        schema: FlatfileSchema
+) -> VdbenchMetrics | None:
+
+    parts = line.split()
+
+    try:
+        iops = float(parts[schema.rate_idx])
+        latency = float(parts[schema.resp_idx])
+        mbs = float(parts[schema.mbs_idx])
+
+        return VdbenchMetrics(
+            iops=iops,
+            throughput_bytes=mbs * 1024 * 1024,
+            latency_ms=latency
+        )
+
+    except (ValueError, IndexError):
+        return None
+
+def export_metrics(metrics: VdbenchMetrics):
+    iops.set(metrics.iops)
+    throughput.set(metrics.throughput_bytes)
+    latency.set(metrics.latency_ms)
+
+def maybe_push_metrics(
+        push_gateway: str | None,
+        job_name: str
+):
+    if push_gateway:
+        push_metrics(push_gateway, job_name)
+
+def trace_metrics(
+        trace_file: str,
+        line: str,
+        metrics: VdbenchMetrics,
+        file_mtime : float,
+):
+    if not trace_file:
+        return
+
+    with open(
+            trace_file,
+            "a",
+            encoding="utf-8"
+    ) as f:
+        json.dump(
+            {
+                "line": line,
+                "processed_at": time.time(),
+
+                "flatfile_mtime": file_mtime,
+
+                "iops": metrics.iops,
+                "throughput": metrics.throughput_bytes,
+                "latency": metrics.latency_ms
+            },
+            f
+        )
+
+        f.write("\n")
+
+async def follow_vdbench_output(
+        file_path: str,
+        shutdown_controller,
+        runtime_state,
+        trace_file: str,
+        push_gateway=None,
+        job_name="vdbench",
+        polling=5,
+        read_polling=0.2,
+        schema=None
+):
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"VDbench output file not found: {file_path}"
+        )
+    logger.info(f"Following VDbench output: {file_path}")
+
+    last_push = 0
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        if not schema:
+            logger.info("Discovering flatfile schema...")
+            schema = discover_flatfile_schema(path)
+
+        logger.info(
+            f"SCHEMA: "
+            f"rate={schema.rate_idx}, "
+            f"resp={schema.resp_idx}, "
+            f"mbs={schema.mbs_idx}"
+        )
+
+        f.seek(0, 2)
+        runtime_state.reader_running = True
+        try:
+            while not shutdown_controller.is_stopped:
+                file_mtime = path.stat().st_mtime
+                line = f.readline()
+
+                if not line:
+                    await asyncio.sleep(read_polling)
+                    continue
+
+                line = line.strip()
+
+                metrics = parse_metrics_line(
+                    line,
+                    schema
+                )
+
+                logger.info(f"LINE={line}")
+                logger.info(f"PARSED={metrics}")
+
+                if not metrics:
+                    continue
+                runtime_state.last_raw_line = line
+                runtime_state.last_metrics = metrics
+                export_metrics(metrics)
+                runtime_state.mark_metrics_update()
+
+                if trace_file:
+                    trace_metrics(
+                        trace_file,
+                        line,
+                        metrics,
+                        file_mtime
+                    )
+
+                logger.debug(
+                    f"IOPS={metrics.iops}, "
+                    f"THR={metrics.throughput_bytes}, "
+                    f"LAT={metrics.latency_ms}"
+                )
+
+                if push_gateway and time.time() - last_push > polling:
+                    maybe_push_metrics(push_gateway, job_name)
+                    last_push = time.time()
+
+                    logger.info(
+                        f"Pushing metrics to {push_gateway}, "
+                        f"job={job_name}"
+                    )
+        finally:
+            runtime_state.reader_running = False
 
 #TODO дописать работу офлайн
 async def run_offline(file_path: str):

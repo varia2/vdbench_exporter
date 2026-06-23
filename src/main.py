@@ -1,11 +1,17 @@
 import asyncio
 import argparse
-from src.utils import validate_args, render_workload, get_project_root
+from src.utils import validate_args
 from prometheus_client import start_http_server
-from src.vdbench_runner import run_vdbench
+from src.vdbench_runner import follow_vdbench_output
 
 from src.logger import setup_logging
 import logging
+
+from src.shutdown import ShutdownController
+from src.control_api import create_control_api
+from src.runtime_state import RuntimeState
+
+import uvicorn
 
 logger = logging.getLogger(__name__)
 
@@ -13,27 +19,14 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="VDbench Prometheus exporter")
 
     parser.add_argument(
-        "--mode",
-        choices=["online", "offline"],
-        default="online",
-        help="Mode: online (run vdbench) or offline (read file)"
-    )
-
-    parser.add_argument(
-        "--vdbench-path",
-        help="Path to vdbench.bat or vdbench.jar",
-        default=r"C:\Users\varia\Downloads\vdbench50407\vdbench50407\vdbench.bat"
+        "--output-file",
+        required=True,
+        help="Path to VDbench flatfile.html"
     )
 
     parser.add_argument(
         "--input-file",
         help="Path to vdbench output file (offline mode)"
-    )
-
-    parser.add_argument(
-        "--workload-config",
-        type=str,
-        help="Path to vdbench workload configuration file(optional, default will be generated)"
     )
 
     parser.add_argument(
@@ -69,27 +62,88 @@ def parse_args(argv=None):
         choices=["DEBUG", "INFO", "WARNING", "ERROR"]
     )
 
+    parser.add_argument(
+        "--stop-mode",
+        choices=["infinite", "timer", "api"],
+        default="infinite"
+    )
+
+    parser.add_argument(
+        "--duration",
+        type=int,
+        help="Shutdown timeout in seconds"
+    )
+
+    parser.add_argument(
+        "--api-port",
+        type=int,
+        default=8080,
+        help="Control API port"
+    )
+
+    parser.add_argument(
+        "--trace-file",
+        type=str,
+        help="File path to trace"
+    )
+
+    parser.add_argument(
+        "--read-polling",
+        type=float,
+        default=0.2,
+        help="How often to poll VDbench flatfile for new lines (seconds)"
+    )
+
     return parser.parse_args(argv)
 
-async def start_app(args):
-    if args.mode == "online":
-        if not args.vdbench_path:
-            raise ValueError("--vdbench-path is required in online mode")
+async def stop_after_timeout(controller, seconds):
+    await asyncio.sleep(seconds)
+    controller.stop()
+
+async def start_app(args, controller, runtime_state):
+    asyncio.create_task(
+        follow_vdbench_output(
+            args.output_file,
+            controller,
+            runtime_state,
+            push_gateway=args.push_gateway,
+            job_name=args.job_name,
+            polling=args.polling,
+            read_polling=args.read_polling,
+            trace_file=args.trace_file
+        )
+    )
+
+    logger.info(
+        f"Starting control API on :{args.api_port} "
+        f"(stop_mode={args.stop_mode})"
+    )
+
+    api = create_control_api(
+        controller,
+        runtime_state,
+        args.output_file,
+        args.stop_mode
+    )
+
+    config = uvicorn.Config(
+        api,
+        host="0.0.0.0",
+        port=args.api_port,
+        log_level="info"
+    )
+
+    server = uvicorn.Server(config)
+    asyncio.create_task(server.serve())
+
+    if args.stop_mode == "timer":
+        logger.info(
+            f"Exporter will stop after {args.duration} seconds"
+        )
 
         asyncio.create_task(
-            run_vdbench(
-                args.vdbench_path,
-                args.workload_config,
-                push_gateway=args.push_gateway,
-                job_name=args.job_name,
-                polling=args.polling
-            )
+            stop_after_timeout(controller, args.duration)
         )
-    else:
-        if not args.input_file:
-            raise ValueError("--input-file is required in offline mode")
-        raise NotImplementedError
-        # asyncio.create_task(run_offline(args.input_file))
 
 
 async def main():
@@ -99,14 +153,14 @@ async def main():
     logger.info(f"Starting exporter on :{args.port}")
     start_http_server(args.port)
 
-    if args.workload_config is None:
-        template_path = get_project_root() / "default_workload.tlp"
-        args.workload_config = render_workload(str(template_path))
+    controller = ShutdownController()
+    runtime_state = RuntimeState()
 
-    await start_app(args)
+    await start_app(args, controller, runtime_state)
 
-    while True:
-        await asyncio.sleep(1)
+    await controller.wait()
+
+    logger.info("Exporter stopped")
 
 
 if __name__ == '__main__':
