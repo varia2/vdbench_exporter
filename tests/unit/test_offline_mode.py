@@ -138,3 +138,29 @@ async def test_run_offline_writes_trace(tmp_path):
     assert rows[1]["line"] == "2222 22.0 2.2"
     assert rows[1]["iops"] == 2222
     assert rows[1]["latency"] == 2.2
+
+@pytest.mark.asyncio
+async def test_run_offline_discovers_schema_from_file(tmp_path):
+    flatfile = tmp_path / "flatfile.html"
+
+    write_flatfile(
+        flatfile,
+        [
+            "tod interval i/o rate MB/sec bytes/read resp",
+            "1 1 0 1000 10.5 4096 1.2",
+            "2 2 0 2000 20.5 4096 2.2",
+            "3 3 0 3000 30.5 4096 3.2",
+        ]
+    )
+
+    runtime = RuntimeState()
+
+    await run_offline(
+        file_path=str(flatfile),
+        runtime_state=runtime,
+    )
+
+    assert runtime.processed_lines == 3
+    assert runtime.last_metrics.iops == 3000
+    assert runtime.last_metrics.latency_ms == 3.2
+    assert runtime.last_metrics.throughput_bytes == 30.5 * 1024 * 1024
