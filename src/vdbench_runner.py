@@ -199,7 +199,7 @@ async def follow_vdbench_output(
         push_gateway: str | None = None,
         job_name: str = "vdbench",
         polling: int = 5,
-        read_polling: float = 0.2,
+        read_polling: float = 0.05,
         schema: FlatfileSchema | None = None
 ):
     path = Path(file_path)
