@@ -1,6 +1,5 @@
 import asyncio
 import json
-import re
 import time
 from pathlib import Path
 from dataclasses import dataclass
@@ -17,9 +16,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-METRICS_RE = re.compile(
-    r"(?P<iops>\d+)\s+(?P<mbs>\d+\.?\d*)\s+(?P<lat>\d+\.?\d*)"
-)
 
 @dataclass
 class VdbenchMetrics:
@@ -33,16 +29,23 @@ class FlatfileSchema:
     resp_idx: int
     mbs_idx: int
 
+@dataclass
+class OfflineRecord:
+    line: str
+    metrics: VdbenchMetrics
+    file_mtime: float
+
 def parse_header(line: str) -> FlatfileSchema | None:
     columns = line.split()
+    columns_lower = [c.lower() for c in columns]
 
-    if "Rate" not in columns or "Resp" not in columns or "MB/sec" not in columns:
+    if "rate" not in columns_lower or "resp" not in columns_lower or "mb/sec" not in columns_lower:
         return None
 
     return FlatfileSchema(
-        rate_idx=columns.index("Rate"),
-        resp_idx=columns.index("Resp"),
-        mbs_idx=columns.index("MB/sec")
+        rate_idx=columns_lower.index("rate"),
+        resp_idx=columns_lower.index("resp"),
+        mbs_idx=columns_lower.index("mb/sec")
     )
 
 def discover_flatfile_schema(path: Path, timeout: int=20) -> FlatfileSchema:
@@ -127,16 +130,77 @@ def trace_metrics(
 
         f.write("\n")
 
+def process_metrics_line(
+        line: str,
+        schema: FlatfileSchema,
+        runtime_state,
+        trace_file: str | None = None,
+        file_mtime: float | None = None,
+) -> bool:
+    metrics = parse_metrics_line(line, schema)
+
+    if not metrics:
+        return False
+
+    runtime_state.last_raw_line = line
+    runtime_state.last_metrics = metrics
+
+    export_metrics(metrics)
+    runtime_state.mark_metrics_update()
+
+    logger.debug(
+        f"IOPS={metrics.iops}, "
+        f"THR={metrics.throughput_bytes}, "
+        f"LAT={metrics.latency_ms}"
+    )
+
+    if trace_file:
+        trace_metrics(
+            trace_file=trace_file,
+            line=line,
+            metrics=metrics,
+            file_mtime=file_mtime if file_mtime is not None else time.time()
+        )
+
+    return True
+
+def apply_metrics(
+        line: str,
+        metrics: VdbenchMetrics,
+        runtime_state,
+        trace_file: str | None = None,
+        file_mtime: float | None = None,
+):
+    export_metrics(metrics)
+
+    runtime_state.last_raw_line = line
+    runtime_state.last_metrics = metrics
+    runtime_state.mark_metrics_update(
+        raw_line=line,
+        metrics=metrics
+    )
+
+    if trace_file:
+        if file_mtime is None:
+            file_mtime = time.time()
+
+        trace_metrics(
+            trace_file=trace_file,
+            line=line,
+            metrics=metrics,
+            file_mtime=file_mtime
+        )
+
 async def follow_vdbench_output(
         file_path: str,
         shutdown_controller,
         runtime_state,
-        trace_file: str,
-        push_gateway=None,
-        job_name="vdbench",
-        polling=5,
-        read_polling=0.2,
-        schema=None
+        trace_file: str | None = None,
+        push_gateway: str | None = None,
+        job_name: str = "vdbench",
+        polling: int = 5,
+        read_polling: float = 0.05,
+        schema: FlatfileSchema | None = None
 ):
     path = Path(file_path)
 
@@ -144,26 +208,29 @@ async def follow_vdbench_output(
         raise FileNotFoundError(
             f"VDbench output file not found: {file_path}"
         )
+
     logger.info(f"Following VDbench output: {file_path}")
 
+    if schema is None:
+        logger.info("Discovering flatfile schema...")
+        schema = discover_flatfile_schema(path)
+
+    logger.info(
+        f"SCHEMA: "
+        f"rate={schema.rate_idx}, "
+        f"resp={schema.resp_idx}, "
+        f"mbs={schema.mbs_idx}"
+    )
+
     last_push = 0
-    with path.open("r", encoding="utf-8", errors="ignore") as f:
-        if not schema:
-            logger.info("Discovering flatfile schema...")
-            schema = discover_flatfile_schema(path)
+    runtime_state.reader_running = True
 
-        logger.info(
-            f"SCHEMA: "
-            f"rate={schema.rate_idx}, "
-            f"resp={schema.resp_idx}, "
-            f"mbs={schema.mbs_idx}"
-        )
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            # tail mode: идем в конец файла и ждём новые строки
+            f.seek(0, 2)
 
-        f.seek(0, 2)
-        runtime_state.reader_running = True
-        try:
             while not shutdown_controller.is_stopped:
-                file_mtime = path.stat().st_mtime
                 line = f.readline()
 
                 if not line:
@@ -172,34 +239,27 @@ async def follow_vdbench_output(
 
                 line = line.strip()
 
-                metrics = parse_metrics_line(
-                    line,
-                    schema
-                )
+                if not line:
+                    continue
+
+                file_mtime = path.stat().st_mtime
 
                 logger.info(f"LINE={line}")
-                logger.info(f"PARSED={metrics}")
 
-                if not metrics:
-                    continue
-                runtime_state.last_raw_line = line
-                runtime_state.last_metrics = metrics
-                export_metrics(metrics)
-                runtime_state.mark_metrics_update()
-
-                if trace_file:
-                    trace_metrics(
-                        trace_file,
-                        line,
-                        metrics,
-                        file_mtime
-                    )
-
-                logger.debug(
-                    f"IOPS={metrics.iops}, "
-                    f"THR={metrics.throughput_bytes}, "
-                    f"LAT={metrics.latency_ms}"
+                processed = process_metrics_line(
+                    line=line,
+                    schema=schema,
+                    runtime_state=runtime_state,
+                    trace_file=trace_file,
+                    file_mtime=file_mtime
                 )
+
+                logger.info(
+                    f"PARSED={'ok' if processed else 'skip'}"
+                )
+
+                if not processed:
+                    continue
 
                 if push_gateway and time.time() - last_push > polling:
                     maybe_push_metrics(push_gateway, job_name)
@@ -209,22 +269,120 @@ async def follow_vdbench_output(
                         f"Pushing metrics to {push_gateway}, "
                         f"job={job_name}"
                     )
-        finally:
-            runtime_state.reader_running = False
 
-#TODO дописать работу офлайн
-async def run_offline(file_path: str):
+    finally:
+        runtime_state.reader_running = False
+
+def _read_offline_file_to_queue(
+        file_path: str,
+        schema: FlatfileSchema,
+        queue,
+        loop,
+):
+    path = Path(file_path)
+
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+
+            if not line:
+                continue
+
+            metrics = parse_metrics_line(line, schema)
+
+            if not metrics:
+                continue
+
+            record = OfflineRecord(
+                line=line,
+                metrics=metrics,
+                file_mtime=path.stat().st_mtime,
+            )
+
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                record
+            )
+
+    loop.call_soon_threadsafe(
+        queue.put_nowait,
+        None
+    )
+
+
+async def run_offline(
+        file_path: str,
+        runtime_state,
+        push_gateway: str | None = None,
+        job_name: str = "vdbench",
+        polling: int = 5,
+        trace_file: str | None = None,
+        schema: FlatfileSchema | None = None
+):
     path = Path(file_path)
 
     if not path.exists():
         raise ValueError(f"File not found: {path}")
 
-    with path.open("rb") as f:
-        for line in f:
-            decoded = decode_line(line)
-            print(decoded)
+    try:
+        logger.info(f"Running offline import from {file_path}")
 
-            await asyncio.sleep(0)
+        if schema is None:
+            logger.info("Discovering flatfile schema...")
+            schema = await asyncio.to_thread(discover_flatfile_schema, path)
+
+        logger.info(
+            f"SCHEMA: "
+            f"rate={schema.rate_idx}, "
+            f"resp={schema.resp_idx}, "
+            f"mbs={schema.mbs_idx}"
+        )
+
+        queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        runtime_state.reader_running = True
+        runtime_state.offline_completed = False
+
+        last_push = 0
+
+        producer = asyncio.create_task(
+            asyncio.to_thread(
+                _read_offline_file_to_queue,
+                file_path,
+                schema,
+                queue,
+                loop,
+            )
+        )
+
+        while True:
+            item = await queue.get()
+
+            if item is None:
+                break
+
+            apply_metrics(
+                line=item.line,
+                metrics=item.metrics,
+                runtime_state=runtime_state,
+                trace_file=trace_file,
+                file_mtime=item.file_mtime,
+            )
+
+            if push_gateway and time.time() - last_push > polling:
+                maybe_push_metrics(push_gateway, job_name)
+                last_push = time.time()
+
+        await producer
+        logger.info("Offline import completed")
+    except Exception:
+        logger.exception("run_offline failed")
+        raise
+
+    finally:
+        runtime_state.reader_running = False
+        runtime_state.offline_completed = True
 
 def push_metrics(gateway: str, job: str) -> None:
     push_to_gateway(gateway, job=job, registry=REGISTRY)

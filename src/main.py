@@ -2,7 +2,7 @@ import asyncio
 import argparse
 from src.utils import validate_args
 from prometheus_client import start_http_server
-from src.vdbench_runner import follow_vdbench_output
+from src.vdbench_runner import follow_vdbench_output, run_offline
 
 from src.logger import setup_logging
 import logging
@@ -100,20 +100,20 @@ async def stop_after_timeout(controller, seconds):
     await asyncio.sleep(seconds)
     controller.stop()
 
-async def start_app(args, controller, runtime_state):
-    asyncio.create_task(
-        follow_vdbench_output(
-            args.output_file,
-            controller,
-            runtime_state,
-            push_gateway=args.push_gateway,
-            job_name=args.job_name,
-            polling=args.polling,
-            read_polling=args.read_polling,
-            trace_file=args.trace_file
-        )
-    )
+async def wait_for_server_started(
+        server: uvicorn.Server,
+        timeout: float = 5.0
+):
+    deadline = asyncio.get_running_loop().time() + timeout
 
+    while not server.started:
+        if asyncio.get_running_loop().time() > deadline:
+            raise TimeoutError(
+                "Control API server did not start in time"
+            )
+        await asyncio.sleep(0.05)
+
+async def start_app(args, controller, runtime_state):
     logger.info(
         f"Starting control API on :{args.api_port} "
         f"(stop_mode={args.stop_mode})"
@@ -135,6 +135,33 @@ async def start_app(args, controller, runtime_state):
 
     server = uvicorn.Server(config)
     asyncio.create_task(server.serve())
+
+    await wait_for_server_started(server)
+
+    if args.input_file:
+        asyncio.create_task(
+            run_offline(
+                file_path=args.input_file,
+                runtime_state=runtime_state,
+                push_gateway=args.push_gateway,
+                job_name=args.job_name,
+                polling=args.polling,
+                trace_file=args.trace_file,
+            )
+        )
+    else:
+        asyncio.create_task(
+            follow_vdbench_output(
+                args.output_file,
+                controller,
+                runtime_state,
+                push_gateway=args.push_gateway,
+                job_name=args.job_name,
+                polling=args.polling,
+                read_polling=args.read_polling,
+                trace_file=args.trace_file,
+            )
+        )
 
     if args.stop_mode == "timer":
         logger.info(

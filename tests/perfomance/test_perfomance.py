@@ -87,6 +87,7 @@ async def test_processing_latency(tmp_path):
             shutdown_controller=controller,
             runtime_state=runtime,
             polling=0,
+            read_polling=0.001,  # ← добавить
             trace_file=str(tracefile),
             schema=schema,
         )

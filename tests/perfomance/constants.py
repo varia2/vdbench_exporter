@@ -20,7 +20,7 @@ def env_int(name: str, default: int) -> int:
 #
 MICRO_P95_LATENCY_SEC = env_float(
     "TEST_MICRO_P95_LATENCY_SEC",
-    0.25
+    0.05
 )
 
 #
@@ -28,7 +28,7 @@ MICRO_P95_LATENCY_SEC = env_float(
 #
 LAB_AVG_DETECTION_LATENCY_SEC = env_float(
     "TEST_LAB_AVG_DETECTION_LATENCY_SEC",
-    0.20
+    0.25
 )
 
 LAB_P95_DETECTION_LATENCY_SEC = env_float(

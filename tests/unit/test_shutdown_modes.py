@@ -25,6 +25,7 @@ async def test_infinite_mode_starts_reader_and_api(
 
     class Args:
         output_file = "output/flatfile.html"
+        input_file = None
         push_gateway = None
         job_name = "vdbench"
         polling = 5
@@ -72,6 +73,7 @@ async def test_timer_mode_starts_reader_api_and_timeout(
 
     class Args:
         output_file = "output/flatfile.html"
+        input_file = None
         push_gateway = None
         job_name = "vdbench"
         polling = 5
@@ -120,6 +122,7 @@ async def test_api_mode_starts_reader_and_api(
 
     class Args:
         output_file = "output/flatfile.html"
+        input_file = None
         push_gateway = None
         job_name = "vdbench"
         polling = 5

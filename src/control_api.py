@@ -15,6 +15,7 @@ def create_control_api(
 
     @app.get("/health")
     async def health():
+        logger.info("HEALTH: entered")
         output_exists = Path(output_file).exists()
 
         stale = False
@@ -23,6 +24,7 @@ def create_control_api(
             stale = (
                     runtime_state.seconds_since_last_update > 30
             )
+        logger.info("HEALTH: returning payload")
         return {
             "status": "degraded" if stale else "ok",
 
@@ -53,7 +55,9 @@ def create_control_api(
                 "iops": runtime_state.last_metrics.iops if runtime_state.last_metrics else None,
                 "latency": runtime_state.last_metrics.latency_ms if runtime_state.last_metrics else None,
                 "throughput": runtime_state.last_metrics.throughput_bytes if runtime_state.last_metrics else None,
-            }
+            },
+
+            "offline_completed": runtime_state.offline_completed,
         }
 
     @app.post("/shutdown")
