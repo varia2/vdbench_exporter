@@ -20,8 +20,9 @@ def parse_args(argv=None):
 
     parser.add_argument(
         "--output-file",
-        required=True,
-        help="Path to VDbench flatfile.html"
+        required=False,
+        default=None,
+        help="Path to VDbench flatfile.html (required unless --input-file is specified)"
     )
 
     parser.add_argument(
@@ -90,7 +91,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--read-polling",
         type=float,
-        default=0.2,
+        default=0.05,
         help="How often to poll VDbench flatfile for new lines (seconds)"
     )
 

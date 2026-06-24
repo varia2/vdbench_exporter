@@ -11,6 +11,7 @@ class Args:
             trace_file="output/exporter_trace.jsonl"
     ):
         self.output_file = output_file
+        self.input_file = None
         self.port = port
         self.trace_file = trace_file
 

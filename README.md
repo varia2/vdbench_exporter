@@ -1,51 +1,77 @@
 # vdbench_exporter
-Создать экспортер данных VDbench в Prometheus, работающий в режиме онлайн, без задержек и определить, каких скоростей можно добиться. Экспортер должен собирать данные в валидный для Prometheus формат. Он должен поддерживать онлайн и офлайн режимы.
 
-## Запуск
+Prometheus-экспортёр метрик VDbench. Читает `flatfile.html` в реальном времени и публикует метрики IOPS, латентности и пропускной способности.
 
-Установка зависимостей
+Поддерживает онлайн-режим (слежение за живым файлом) и офлайн-режим (однократный импорт готового файла).
+
+---
+
+## Установка
+
 ```bash
 pip install -r requirements.txt
 ```
-Пример команды запуска
-```bash
-python -m src.main \
-  --mode online \
-  --vdbench-path "C:\vdbench\vdbench.bat" \
-  --workload workload.txt
-```
-Мутрики будут отображаться на http://localhost:8000/metrics
 
-# Внешнее управление остановкой экспортера
+---
 
-Экспортер поддерживает внешнее управление остановкой через HTTP API.
+## Запуск
 
-# Режим API
+### Онлайн-режим
 
-Запуск экспортера:
+Экспортёр следит за `flatfile.html` по мере того, как VDbench дописывает новые строки.
 
 ```bash
+python -m src.main --output-file output/flatfile.html
+```
+
+Метрики доступны на `http://localhost:8000/metrics`.
+
+### Офлайн-режим
+
+Однократный импорт уже готового файла. После обработки всех строк экспортёр завершается.
+
+```bash
 python -m src.main \
-  --output-file output/flatfile.html \
-  --stop-mode api \
-  --api-port 8080
+  --input-file output/flatfile.html \
+  --stop-mode api
 ```
 
-После запуска экспортер поднимает:
+---
 
-* endpoint с Prometheus-метриками
-* API для управления процессом
+## Аргументы
 
+| Аргумент          | По умолчанию | Описание                                                              |
+|-------------------|:------------:|-----------------------------------------------------------------------|
+| `--output-file`   |              | Путь к `flatfile.html` VDbench. Обязателен если не указан `--input-file` |
+| `--input-file`    |              | Путь к файлу для офлайн-импорта. Если указан — запускается офлайн-режим |
+| `--port`          | `8000`       | Порт для scrape-эндпоинта `/metrics`                                  |
+| `--api-port`      | `8080`       | Порт Control API                                                      |
+| `--stop-mode`     | `infinite`   | Режим остановки: `infinite`, `timer`, `api`                           |
+| `--duration`      |              | Время работы в секундах (только для `--stop-mode timer`)              |
+| `--read-polling`  | `0.2`        | Как часто опрашивать flatfile на новые строки (секунды)               |
+| `--polling`       | `5`          | Интервал отправки метрик в Pushgateway (секунды)                      |
+| `--push-gateway`  |              | URL Prometheus Pushgateway для активной отправки метрик (опционально). Если не указан — экспортёр работает только в режиме scrape |
+| `--job-name`      | `vdbench`    | Имя job при отправке метрик в Pushgateway                             |
+| `--trace-file`    |              | Путь к файлу трассировки обработанных строк (JSONL)                   |
+| `--log-level`     | `INFO`       | Уровень логирования: `DEBUG`, `INFO`, `WARNING`, `ERROR`              |
 
-# Доступные endpoint'ы
+### Режимы остановки (`--stop-mode`)
 
-## Проверка состояния экспортера
+| Режим      | Поведение                                                        |
+|------------|------------------------------------------------------------------|
+| `infinite` | Работает бесконечно до ручного завершения процесса               |
+| `timer`    | Останавливается через `--duration` секунд                        |
+| `api`      | Останавливается по команде `POST /shutdown`                      |
 
-```http
-GET /health
-```
+---
 
-Пример запроса:
+## Control API
+
+При запуске экспортёр поднимает HTTP API на `--api-port` (по умолчанию `8080`).
+
+### GET /health
+
+Состояние экспортёра.
 
 ```bash
 curl http://localhost:8080/health
@@ -62,32 +88,34 @@ curl http://localhost:8080/health
   "last_metrics_update": 1716900000,
   "seconds_since_last_update": 2,
   "mode": "api",
-  "uptime_seconds": 153
+  "uptime_seconds": 153,
+  "last_raw_line": "3 3 0 3000 30.5 4096 3.2 3.2 0.0 0 0 0 0 0 0",
+  "last_metrics": {
+    "iops": 3000.0,
+    "latency": 3.2,
+    "throughput": 31981568.0
+  },
+  "offline_completed": false
 }
 ```
 
-Описание полей:
+| Поле                        | Описание                                               |
+|-----------------------------|--------------------------------------------------------|
+| `status`                    | `ok` или `degraded` (если метрики не обновлялись >30с) |
+| `reader_running`            | Активно ли чтение файла                                |
+| `shutdown_requested`        | Получен ли сигнал остановки                            |
+| `output_file_exists`        | Существует ли `output-file`                            |
+| `last_metrics_update`       | Unix-timestamp последнего обновления метрик            |
+| `seconds_since_last_update` | Секунд с последнего обновления                         |
+| `mode`                      | Текущий режим остановки                                |
+| `uptime_seconds`            | Время работы экспортёра в секундах                     |
+| `last_raw_line`             | Последняя обработанная строка из flatfile              |
+| `last_metrics`              | Последние значения метрик                              |
+| `offline_completed`         | Завершён ли офлайн-импорт                              |
 
-| Поле                      | Описание                                      |
-| ------------------------- | --------------------------------------------- |
-| status                    | Состояние экспортера (`ok` / `degraded`)      |
-| reader_running            | Активно ли чтение VDbench output              |
-| shutdown_requested        | Был ли получен сигнал остановки               |
-| output_file_exists        | Существует ли output-файл VDbench             |
-| last_metrics_update       | Timestamp последнего обновления метрик        |
-| seconds_since_last_update | Сколько секунд прошло с последнего обновления |
-| mode                      | Текущий режим остановки                       |
-| uptime_seconds            | Время работы экспортера                       |
+### POST /shutdown
 
----
-
-## Остановка экспортера
-
-```http
-POST /shutdown
-```
-
-Пример запроса:
+Остановка экспортёра (только в режиме `--stop-mode api`).
 
 ```bash
 curl -X POST http://localhost:8080/shutdown
@@ -101,87 +129,12 @@ curl -X POST http://localhost:8080/shutdown
 }
 ```
 
-После получения команды экспортер:
-
-1. Останавливает чтение output-файла VDbench
-2. Завершает фоновые задачи
-3. Корректно завершает работу приложения
-
 ---
 
-# Примеры интеграции
+## Публикуемые метрики
 
-## PowerShell
-
-```powershell
-Invoke-RestMethod `
-  -Method POST `
-  -Uri http://localhost:8080/shutdown
-```
-
----
-
-## Python
-
-```python
-import requests
-
-requests.post(
-    "http://localhost:8080/shutdown"
-)
-```
-
----
-
-## Bash
-
-```bash
-curl -X POST \
-  http://localhost:8080/shutdown
-```
-
----
-
-# Типовой сценарий использования
-
-## 1. Запуск VDbench
-
-```powershell
-Start-Process powershell `
-  -ArgumentList "& 'C:\vdbench\vdbench.bat' -fworkload.txt"
-```
-
----
-
-## 2. Запуск экспортера
-
-```bash
-python -m src.main \
-  --output-file output/flatfile.html \
-  --stop-mode api
-```
-
----
-
-## 3. Выполнение нагрузки
-
-Экспортер непрерывно читает output-файл VDbench и публикует метрики в Prometheus.
-
----
-
-## 4. Внешняя остановка экспортера
-
-```bash
-curl -X POST \
-  http://localhost:8080/shutdown
-```
-
----
-
-# Важные замечания
-
-* Остановка экспортера выполняется корректно (graceful shutdown)
-* Экспортер не завершает процесс VDbench
-* Жизненный цикл VDbench управляется отдельно
-* API предназначен для использования во внутренней сети или локальном окружении
-* Аутентификация для API по умолчанию не реализована
+| Метрика              | Описание                  |
+|----------------------|---------------------------|
+| `vdbench_iops`       | IOPS                      |
+| `vdbench_latency`    | Латентность (мс)          |
+| `vdbench_throughput` | Пропускная способность (байт/с) |

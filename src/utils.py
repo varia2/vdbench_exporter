@@ -25,7 +25,11 @@ def validate_args(args):
     if not (1 <= args.port <= 65535):
         raise ValueError(f"Invalid port: {args.port}")
 
-    validate_file_arg("output_file", args.output_file, must_exist=False)
+    if not args.input_file and not args.output_file:
+        raise ValueError("--output-file is required unless --input-file is specified")
+
+    validate_file_arg("output_file", args.output_file, optional=True, must_exist=False)
+    validate_file_arg("input_file", args.input_file, optional=True, must_exist=True)
     validate_file_arg("trace_file", args.trace_file, optional=True, must_exist=False)
 
 def get_default_lun():
