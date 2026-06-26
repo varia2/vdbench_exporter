@@ -14,6 +14,8 @@ from src.metrics import (
 
 import logging
 
+from src.remote_write import remote_write
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,7 +71,7 @@ def discover_flatfile_schema(path: Path, timeout: int=20) -> FlatfileSchema:
 
 def parse_metrics_line(
         line: str,
-        schema: FlatfileSchema
+        schema: FlatfileSchema | None
 ) -> VdbenchMetrics | None:
 
     parts = line.split()
@@ -87,7 +89,6 @@ def parse_metrics_line(
 
     except (ValueError, IndexError):
         return None
-
 def export_metrics(metrics: VdbenchMetrics):
     iops.set(metrics.iops)
     throughput.set(metrics.throughput_bytes)
@@ -181,14 +182,11 @@ def apply_metrics(
     )
 
     if trace_file:
-        if file_mtime is None:
-            file_mtime = time.time()
-
         trace_metrics(
             trace_file=trace_file,
             line=line,
             metrics=metrics,
-            file_mtime=file_mtime
+            file_mtime=file_mtime if file_mtime is not None else time.time()
         )
 
 async def follow_vdbench_output(
@@ -213,7 +211,7 @@ async def follow_vdbench_output(
 
     if schema is None:
         logger.info("Discovering flatfile schema...")
-        schema = discover_flatfile_schema(path)
+        schema: FlatfileSchema = discover_flatfile_schema(path)
 
     logger.info(
         f"SCHEMA: "
@@ -275,7 +273,7 @@ async def follow_vdbench_output(
 
 def _read_offline_file_to_queue(
         file_path: str,
-        schema: FlatfileSchema,
+        schema: FlatfileSchema | None,
         queue,
         loop,
 ):
@@ -317,7 +315,9 @@ async def run_offline(
         job_name: str = "vdbench",
         polling: int = 5,
         trace_file: str | None = None,
-        schema: FlatfileSchema | None = None
+        schema: FlatfileSchema | None = None,
+        prometheus_url: str | None = None,
+        offline_step_ms: int = 1000,
 ):
     path = Path(file_path)
 
@@ -346,6 +346,11 @@ async def run_offline(
 
         last_push = 0
 
+        # Стартовый timestamp — текущее время минус (кол-во строк * шаг)
+        # вычислим после чтения, пока просто берём текущее время
+        base_ts_ms = int(time.time() * 1000)
+        line_counter = 0
+
         producer = asyncio.create_task(
             asyncio.to_thread(
                 _read_offline_file_to_queue,
@@ -370,12 +375,28 @@ async def run_offline(
                 file_mtime=item.file_mtime,
             )
 
+            if prometheus_url:
+                ts_ms = base_ts_ms + line_counter * offline_step_ms
+                await asyncio.to_thread(
+                    remote_write,
+                    prometheus_url,
+                    {
+                        "vdbench_iops": item.metrics.iops,
+                        "vdbench_latency": item.metrics.latency_ms,
+                        "vdbench_throughput": item.metrics.throughput_bytes,
+                    },
+                    ts_ms / 1000.0,
+                    job_name,
+                )
+                line_counter += 1
+
             if push_gateway and time.time() - last_push > polling:
                 maybe_push_metrics(push_gateway, job_name)
                 last_push = time.time()
 
         await producer
-        logger.info("Offline import completed")
+        logger.info(f"Offline import completed, {line_counter} lines sent to Prometheus")
+
     except Exception:
         logger.exception("run_offline failed")
         raise

@@ -5,6 +5,8 @@ fastapi
 uvicorn
 httpx
 requests
-fastapi
-uvicorn
-httpx
+protobuf
+python-snappy
+pytest-html
+pytest-repeat
+ruff

@@ -1,6 +1,7 @@
 import json
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.runtime_state import RuntimeState
 from src.vdbench_runner import (
@@ -164,3 +165,73 @@ async def test_run_offline_discovers_schema_from_file(tmp_path):
     assert runtime.last_metrics.iops == 3000
     assert runtime.last_metrics.latency_ms == 3.2
     assert runtime.last_metrics.throughput_bytes == 30.5 * 1024 * 1024
+
+@pytest.mark.asyncio
+@patch("src.vdbench_runner.remote_write")
+async def test_run_offline_calls_remote_write(mock_remote_write, tmp_path):
+    flatfile = tmp_path / "flatfile.html"
+
+    write_flatfile(
+        flatfile,
+        [
+            "Rate MB/sec Resp",
+            "1000 10.0 1.0",
+            "2000 20.0 2.0",
+            "3000 30.0 3.0",
+        ]
+    )
+
+    runtime = RuntimeState()
+    schema = FlatfileSchema(rate_idx=0, mbs_idx=1, resp_idx=2)
+
+    await run_offline(
+        file_path=str(flatfile),
+        runtime_state=runtime,
+        schema=schema,
+        prometheus_url="http://localhost:9090",
+        offline_step_ms=1000,
+    )
+
+    assert mock_remote_write.call_count == 3
+
+    # Проверяем что timestamp инкрементальный
+    calls = mock_remote_write.call_args_list
+    ts0 = calls[0][0][2]  # третий позиционный аргумент — timestamp
+    ts1 = calls[1][0][2]
+    ts2 = calls[2][0][2]
+
+    assert ts1 - ts0 == pytest.approx(1.0, abs=0.01)
+    assert ts2 - ts1 == pytest.approx(1.0, abs=0.01)
+
+    # Проверяем метрики последнего вызова
+    last_metrics = calls[2][0][1]
+    assert last_metrics["vdbench_iops"] == 3000.0
+    assert last_metrics["vdbench_latency"] == 3.0
+    assert last_metrics["vdbench_throughput"] == 30.0 * 1024 * 1024
+
+
+@pytest.mark.asyncio
+async def test_run_offline_no_remote_write_without_url(tmp_path):
+    """Если prometheus_url не указан — remote_write не вызывается."""
+    flatfile = tmp_path / "flatfile.html"
+
+    write_flatfile(
+        flatfile,
+        [
+            "Rate MB/sec Resp",
+            "1000 10.0 1.0",
+        ]
+    )
+
+    runtime = RuntimeState()
+    schema = FlatfileSchema(rate_idx=0, mbs_idx=1, resp_idx=2)
+
+    with patch("src.vdbench_runner.remote_write") as mock_remote_write:
+        await run_offline(
+            file_path=str(flatfile),
+            runtime_state=runtime,
+            schema=schema,
+            prometheus_url=None,
+        )
+
+        mock_remote_write.assert_not_called()

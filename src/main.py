@@ -38,6 +38,19 @@ def parse_args(argv=None):
     )
 
     parser.add_argument(
+        "--prometheus-url",
+        type=str,
+        help="Prometheus URL for remote write in offline mode (e.g. http://localhost:9090)"
+    )
+
+    parser.add_argument(
+        "--offline-step-ms",
+        type=int,
+        default=1000,
+        help="Timestamp step between lines in offline remote write mode (milliseconds)"
+    )
+
+    parser.add_argument(
         "--push-gateway",
         type=str,
         help="Pushgateway URL (e.g. http://localhost:9091)"
@@ -148,6 +161,8 @@ async def start_app(args, controller, runtime_state):
                 job_name=args.job_name,
                 polling=args.polling,
                 trace_file=args.trace_file,
+                prometheus_url=args.prometheus_url,
+                offline_step_ms=args.offline_step_ms,
             )
         )
     else:

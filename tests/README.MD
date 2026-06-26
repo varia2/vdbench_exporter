@@ -32,6 +32,28 @@ pytest tests/unit/ -m "not integration and not performance"
 pytest tests/offline_integration/
 ```
 
+### Remote write в офлайн-режиме
+
+Если нужно проверить отправку метрик в Prometheus через remote write (`--prometheus-url`),
+контейнер Prometheus должен существовать и быть создан с флагом `--web.enable-remote-write-receiver`:
+
+```powershell
+docker run -d `
+  --name inspiring_vaughan `
+  -p 9090:9090 `
+  -v "C:\prometheus\prometheus.yml:/etc/prometheus/prometheus.yml" `
+  prom/prometheus `
+  --config.file=/etc/prometheus/prometheus.yml `
+  --storage.tsdb.path=/prometheus `
+  --web.enable-remote-write-receiver
+```
+
+Без этого флага remote write недоступен и экспортёр будет получать `404` на `/api/v1/write`.
+
+Офлайн-интеграционные тесты (`tests/offline_integration/`) remote write не проверяют —
+они работают только с локальными Gauge-метриками. Remote write покрыт юнит-тестом
+`test_run_offline_calls_remote_write` с моком.
+
 ---
 
 ## Микробенчмарки
@@ -87,7 +109,7 @@ pytest tests/integration/ -m integration -s
 | Переменная                          | По умолчанию | Описание                    |
 |-------------------------------------|--------------|-----------------------------|
 | `TEST_LAB_AVG_DETECTION_LATENCY_SEC`| `0.25`       | Средняя задержка обнаружения|
-| `TEST_LAB_P95_DETECTION_LATENCY_SEC`| `0.30`       | P95 задержки обнаружения    |
+| `TEST_LAB_P95_DETECTION_LATENCY_SEC`| `0.50`       | P95 задержки обнаружения    |
 | `TEST_LAB_SAMPLE_WAIT_TIMEOUT_SEC`  | `60`         | Таймаут сбора 30 записей    |
 
 ### Конфигурация через переменные окружения

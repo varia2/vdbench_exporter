@@ -53,6 +53,8 @@ python -m src.main \
 | `--push-gateway`  |              | URL Prometheus Pushgateway для активной отправки метрик (опционально). Если не указан — экспортёр работает только в режиме scrape |
 | `--job-name`      | `vdbench`    | Имя job при отправке метрик в Pushgateway                             |
 | `--trace-file`    |              | Путь к файлу трассировки обработанных строк (JSONL)                   |
+| `--prometheus-url`|              | URL Prometheus для remote write в офлайн-режиме (например `http://localhost:9090`) |
+| `--offline-step-ms`| `1000`      | Шаг между временными метками строк при офлайн remote write (мс)       |
 | `--log-level`     | `INFO`       | Уровень логирования: `DEBUG`, `INFO`, `WARNING`, `ERROR`              |
 
 ### Режимы остановки (`--stop-mode`)
@@ -65,7 +67,41 @@ python -m src.main \
 
 ---
 
-## Control API
+## Офлайн-режим и Prometheus
+
+В офлайн-режиме экспортёр может отправлять все строки из flatfile в Prometheus через remote write API (`--prometheus-url`).
+
+### Временные метки
+
+Исторические временные метки из flatfile не используются — Prometheus 3.x не принимает данные из прошлого без специальной настройки. Вместо этого экспортёр генерирует инкрементальные временные метки начиная с текущего момента: каждая следующая строка получает timestamp на `--offline-step-ms` миллисекунд больше предыдущей.
+
+Пример: при 100 строках и `--offline-step-ms 1000` временной ряд растянется на ~100 секунд от текущего момента.
+
+### Требования к Prometheus
+
+Контейнер должен быть запущен с флагом `--web.enable-remote-write-receiver`:
+
+```powershell
+docker run -d `
+  --name inspiring_vaughan `
+  -p 9090:9090 `
+  -v "C:\prometheus\prometheus.yml:/etc/prometheus/prometheus.yml" `
+  prom/prometheus `
+  --config.file=/etc/prometheus/prometheus.yml `
+  --storage.tsdb.path=/prometheus `
+  --web.enable-remote-write-receiver
+```
+
+### Пример запуска с remote write
+
+```bash
+python -m src.main \
+  --input-file output/flatfile.html \
+  --stop-mode api \
+  --prometheus-url http://localhost:9090
+```
+
+---
 
 При запуске экспортёр поднимает HTTP API на `--api-port` (по умолчанию `8080`).
 

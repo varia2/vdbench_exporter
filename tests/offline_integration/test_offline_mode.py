@@ -172,8 +172,6 @@ def offline_exporter(tmp_path):
             sys.executable,
             "-m",
             "src.main",
-            "--output-file",
-            str(flatfile),
             "--input-file",
             str(flatfile),
             "--stop-mode",
