@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.performance
 @pytest.mark.asyncio
-@pytest.mark.parametrize("read_polling", [0.5, 0.4, 0.3, 0.2, 0.05, 0.01, 0.007, 0.005, 0.003, 0.001])
+@pytest.mark.parametrize("read_polling", [0.5, 0.4, 0.3, 0.2, 0.05, 0.01, 0.008, 0.007, 0.006, 0.005, 0.004, 0.003, 0.002, 0.001])
 async def test_processing_latency(tmp_path, read_polling):
     """
         Цель
