@@ -51,6 +51,13 @@ def parse_args(argv=None):
     )
 
     parser.add_argument(
+        "--offline-batch-size",
+        type=int,
+        default=100,
+        help="Количество строк в одном remote write запросе (офлайн-режим)"
+    )
+
+    parser.add_argument(
         "--push-gateway",
         type=str,
         help="Pushgateway URL (e.g. http://localhost:9091)"
@@ -163,6 +170,7 @@ async def start_app(args, controller, runtime_state):
                 trace_file=args.trace_file,
                 prometheus_url=args.prometheus_url,
                 offline_step_ms=args.offline_step_ms,
+                offline_batch_size=args.offline_batch_size,
             )
         )
     else:

@@ -126,3 +126,58 @@ def remote_write(
         logger.debug(
             f"Remote write ok: ts={timestamp_ms}, metrics={list(metrics.keys())}"
         )
+
+def remote_write_batch(
+    prometheus_url: str,
+    samples: list[tuple[dict[str, float], float]],
+    job: str = "vdbench",
+):
+    """
+    Отправляет несколько точек в одном запросе.
+
+    samples: список пар (metrics_dict, timestamp_sec)
+    Пример: [
+        ({"vdbench_iops": 3000.0, "vdbench_latency": 3.2}, 1716900000.0),
+        ({"vdbench_iops": 3100.0, "vdbench_latency": 3.1}, 1716900001.0),
+    ]
+    """
+    timeseries_by_name: dict[str, list[tuple[float, int]]] = {}
+
+    for metrics, timestamp in samples:
+        ts_ms = int(timestamp * 1000)
+        for metric_name, value in metrics.items():
+            if metric_name not in timeseries_by_name:
+                timeseries_by_name[metric_name] = []
+            timeseries_by_name[metric_name].append((value, ts_ms))
+
+    timeseries = []
+    for metric_name, metric_samples in timeseries_by_name.items():
+        labels = {
+            "__name__": metric_name,
+            "job": job,
+        }
+        ts_bytes = _build_timeseries(labels, metric_samples)
+        timeseries.append(ts_bytes)
+
+    write_request = _build_write_request(timeseries)
+    compressed = snappy.compress(write_request)
+
+    resp = requests.post(
+        f"{prometheus_url}/api/v1/write",
+        data=compressed,
+        headers={
+            "Content-Type": "application/x-protobuf",
+            "Content-Encoding": "snappy",
+            "X-Prometheus-Remote-Write-Version": "0.1.0",
+        },
+        timeout=10,
+    )
+
+    if resp.status_code not in (200, 204):
+        logger.warning(
+            f"Remote write batch failed: {resp.status_code} {resp.text}"
+        )
+    else:
+        logger.debug(
+            f"Remote write batch ok: {len(samples)} samples"
+        )

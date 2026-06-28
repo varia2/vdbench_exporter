@@ -167,8 +167,8 @@ async def test_run_offline_discovers_schema_from_file(tmp_path):
     assert runtime.last_metrics.throughput_bytes == 30.5 * 1024 * 1024
 
 @pytest.mark.asyncio
-@patch("src.vdbench_runner.remote_write")
-async def test_run_offline_calls_remote_write(mock_remote_write, tmp_path):
+@patch("src.vdbench_runner.remote_write_batch")  # ← было remote_write
+async def test_run_offline_calls_remote_write(mock_remote_write_batch, tmp_path):
     flatfile = tmp_path / "flatfile.html"
 
     write_flatfile(
@@ -190,21 +190,27 @@ async def test_run_offline_calls_remote_write(mock_remote_write, tmp_path):
         schema=schema,
         prometheus_url="http://localhost:9090",
         offline_step_ms=1000,
+        offline_batch_size=100,
     )
 
-    assert mock_remote_write.call_count == 3
+    # 3 строки — все в одном батче (batch_size=100)
+    assert mock_remote_write_batch.call_count == 1
+
+    call_args = mock_remote_write_batch.call_args
+    samples = call_args[0][1]  # второй позиционный аргумент — список samples
+
+    assert len(samples) == 3
 
     # Проверяем что timestamp инкрементальный
-    calls = mock_remote_write.call_args_list
-    ts0 = calls[0][0][2]  # третий позиционный аргумент — timestamp
-    ts1 = calls[1][0][2]
-    ts2 = calls[2][0][2]
+    ts0 = samples[0][1]
+    ts1 = samples[1][1]
+    ts2 = samples[2][1]
 
     assert ts1 - ts0 == pytest.approx(1.0, abs=0.01)
     assert ts2 - ts1 == pytest.approx(1.0, abs=0.01)
 
-    # Проверяем метрики последнего вызова
-    last_metrics = calls[2][0][1]
+    # Проверяем метрики последней строки
+    last_metrics = samples[2][0]
     assert last_metrics["vdbench_iops"] == 3000.0
     assert last_metrics["vdbench_latency"] == 3.0
     assert last_metrics["vdbench_throughput"] == 30.0 * 1024 * 1024
@@ -226,7 +232,7 @@ async def test_run_offline_no_remote_write_without_url(tmp_path):
     runtime = RuntimeState()
     schema = FlatfileSchema(rate_idx=0, mbs_idx=1, resp_idx=2)
 
-    with patch("src.vdbench_runner.remote_write") as mock_remote_write:
+    with patch("src.vdbench_runner.remote_write_batch") as mock_remote_write_batch:
         await run_offline(
             file_path=str(flatfile),
             runtime_state=runtime,
@@ -234,4 +240,4 @@ async def test_run_offline_no_remote_write_without_url(tmp_path):
             prometheus_url=None,
         )
 
-        mock_remote_write.assert_not_called()
+        mock_remote_write_batch.assert_not_called()

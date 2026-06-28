@@ -16,7 +16,7 @@ def create_control_api(
     @app.get("/health")
     async def health():
         logger.info("HEALTH: entered")
-        output_exists = Path(output_file).exists()
+        output_exists = Path(output_file).exists() if output_file else False
 
         stale = False
 

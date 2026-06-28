@@ -14,7 +14,7 @@ from src.metrics import (
 
 import logging
 
-from src.remote_write import remote_write
+from src.remote_write import remote_write, remote_write_batch
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +318,7 @@ async def run_offline(
         schema: FlatfileSchema | None = None,
         prometheus_url: str | None = None,
         offline_step_ms: int = 1000,
+        offline_batch_size: int = 100,
 ):
     path = Path(file_path)
 
@@ -345,11 +346,9 @@ async def run_offline(
         runtime_state.offline_completed = False
 
         last_push = 0
-
-        # Стартовый timestamp — текущее время минус (кол-во строк * шаг)
-        # вычислим после чтения, пока просто берём текущее время
         base_ts_ms = int(time.time() * 1000)
         line_counter = 0
+        batch = []
 
         producer = asyncio.create_task(
             asyncio.to_thread(
@@ -365,6 +364,15 @@ async def run_offline(
             item = await queue.get()
 
             if item is None:
+                # Отправляем остаток батча
+                if prometheus_url and batch:
+                    await asyncio.to_thread(
+                        remote_write_batch,
+                        prometheus_url,
+                        batch,
+                        job_name,
+                    )
+                    logger.info(f"Remote write final batch: {len(batch)} samples")
                 break
 
             apply_metrics(
@@ -376,19 +384,26 @@ async def run_offline(
             )
 
             if prometheus_url:
-                ts_ms = base_ts_ms + line_counter * offline_step_ms
-                await asyncio.to_thread(
-                    remote_write,
-                    prometheus_url,
+                ts_sec = (base_ts_ms + line_counter * offline_step_ms) / 1000.0
+                batch.append((
                     {
                         "vdbench_iops": item.metrics.iops,
                         "vdbench_latency": item.metrics.latency_ms,
                         "vdbench_throughput": item.metrics.throughput_bytes,
                     },
-                    ts_ms / 1000.0,
-                    job_name,
-                )
+                    ts_sec,
+                ))
                 line_counter += 1
+
+                if len(batch) >= offline_batch_size:
+                    await asyncio.to_thread(
+                        remote_write_batch,
+                        prometheus_url,
+                        batch,
+                        job_name,
+                    )
+                    logger.info(f"Remote write batch: {len(batch)} samples")
+                    batch.clear()
 
             if push_gateway and time.time() - last_push > polling:
                 maybe_push_metrics(push_gateway, job_name)
