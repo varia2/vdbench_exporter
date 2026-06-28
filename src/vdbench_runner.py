@@ -14,7 +14,7 @@ from src.metrics import (
 
 import logging
 
-from src.remote_write import remote_write, remote_write_batch
+from src.remote_write import remote_write_batch
 
 logger = logging.getLogger(__name__)
 
